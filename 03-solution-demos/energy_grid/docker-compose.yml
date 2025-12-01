@@ -50,10 +50,11 @@ services:
     networks:
      - kafka-net
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -h localhost -p 4566 -U root"]
-      interval: 10s
+      test: ["CMD-SHELL", "timeout 1 bash -c '</dev/tcp/localhost/4566' || exit 1"]
+      interval: 15s
       timeout: 10s
-      retries: 5
+      retries: 10
+      start_period: 30s
 
   postgres:
     image: postgres
