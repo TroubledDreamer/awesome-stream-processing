@@ -1,40 +1,25 @@
-import Link from "next/link";
-
 export default function Header() {
   return (
-    <header className="sticky top-0 z-10 border-b border-zinc-200 bg-white/90 backdrop-blur">
-      <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
-        <Link
-          href="/"
-          className="flex items-center gap-3 text-zinc-900 transition hover:opacity-90"
-        >
-          <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-amber-500 to-orange-600 text-lg font-semibold text-white shadow-sm">
-            EG
-          </span>
-          <div className="flex flex-col leading-tight">
-            <span className="text-lg font-semibold">RisingWave Energy Grid</span>
-            <span className="text-xs text-zinc-500">Live stream processing dashboard</span>
-          </div>
-        </Link>
+    <section className="mx-auto w-full max-w-screen-2xl px-6 pb-4 pt-4">
 
-        <nav className="flex items-center gap-6 text-sm font-medium text-zinc-700">
-          <span className="inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1 text-emerald-700 ring-1 ring-emerald-100">
-            <span className="relative flex h-2 w-2">
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
-              <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
-            </span>
-            Live
-          </span>
-          <a
-            href="https://nextjs.org"
-            target="_blank"
-            rel="noreferrer"
-            className="hidden rounded-full border border-zinc-300 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-zinc-900 transition hover:bg-zinc-900 hover:text-white sm:inline-flex"
-          >
-            View Stack
-          </a>
-        </nav>
+
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-4 rounded-2xl bg-gradient-to-br from-[#11221a] via-[#13281f] to-[#0c1c15] px-6 py-6 text-white shadow-sm">
+        <div className="flex min-w-72 flex-col gap-2">
+          <p className="text-3xl font-black leading-tight md:text-4xl">RisingWave Energy Grid</p>
+          <p className="text-sm text-[#9db9ab]">
+            Real-time energy consumption and production monitoring.
+          </p>
+        </div>
+        <div className="flex items-center gap-3 rounded-lg border border-[#3b5447] px-4 py-2">
+          <div className="relative flex items-center">
+            <span className="absolute h-2 w-2 rounded-full bg-emerald-400 opacity-80 animate-ping" />
+            <span className="relative h-2 w-2 rounded-full bg-emerald-400" />
+          </div>
+          <span className="text-sm font-medium text-white">Alert</span>
+
+          <span className="text-sm font-medium text-white">Live</span>
+        </div>
       </div>
-    </header>
+    </section>
   );
 }
