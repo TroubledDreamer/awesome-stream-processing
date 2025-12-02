@@ -31,7 +31,12 @@ function statusStyles(status: Household["status"]) {
   }
 }
 
-export default function Households() {
+type HouseholdsProps = {
+  selectedId?: string | null;
+  onSelect?: (id: string) => void;
+};
+
+export default function Households({ selectedId, onSelect }: HouseholdsProps) {
   return (
     <section className="mx-auto w-full max-w-screen-2xl px-6 pb-12">
       <div className="flex flex-wrap items-start justify-between gap-4 pb-4">
@@ -93,7 +98,15 @@ export default function Households() {
                 const net = home.production - home.consumption;
                 const netClass = net >= 0 ? "text-[#009990]" : "text-red-600";
                 return (
-                  <tr key={home.id} className="border-b border-[#e2e8f0] last:border-0">
+                  <tr
+                    key={home.id}
+                    className={`border-b border-[#e2e8f0] last:border-0 transition hover:bg-[#f7fbff] ${
+                      selectedId === home.id ? "bg-[#eef7ff]" : ""
+                    }`}
+                    onClick={() => onSelect?.(home.id)}
+                    role={onSelect ? "button" : undefined}
+                    tabIndex={onSelect ? 0 : -1}
+                  >
                     <td className="px-6 py-3 font-medium text-[#0b1b33]">{home.id}</td>
                     <td className="px-6 py-3 text-sm text-zinc-600">{home.address}</td>
                     <td className="px-6 py-3">{home.consumption}</td>
