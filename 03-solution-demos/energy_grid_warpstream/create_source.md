@@ -10,7 +10,7 @@ CREATE SOURCE energy_consume (
   ) WITH (
     connector = 'kafka',
     topic = 'energy_consumed',
-    properties.bootstrap.server = 'kafka:9092'
+    properties.bootstrap.server = 'localhost:9092'
 ) FORMAT PLAIN ENCODE JSON;
 
 CREATE SOURCE energy_produce (
@@ -20,7 +20,7 @@ CREATE SOURCE energy_produce (
   ) WITH (
     connector = 'kafka',
     topic = 'energy_produced',
-    properties.bootstrap.server = 'kafka:9092'
+    properties.bootstrap.server = 'localhost:9092'
 ) FORMAT PLAIN ENCODE JSON;
 
 CREATE SOURCE pg_mydb WITH (

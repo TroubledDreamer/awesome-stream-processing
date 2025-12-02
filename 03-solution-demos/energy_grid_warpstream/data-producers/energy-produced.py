@@ -1,60 +1,66 @@
 import json
 import datetime
-from kafka import KafkaProducer
+from confluent_kafka import Producer
 import time
 import random
+import os
 
-# Check if broker is available
+def delivery_report(err, msg):
+    if err is not None:
+        print(f'Message delivery failed: {err}')
+
 def is_broker_available():
     try:
-        test_producer = KafkaProducer(bootstrap_servers=['kafka:9092'], request_timeout_ms=5000)
-        test_producer.close()
+        p = Producer({
+            'bootstrap.servers': 'warpstream:9092', 
+            'socket.timeout.ms': 10000,
+            'connections.max.idle.ms': 10000
+        })
+        # Actually attempt to get metadata
+        metadata = p.list_topics(timeout=5)
+        p.close()
         return True
     except Exception as e:
         print(f"Broker not available: {e}")
         return False
 
 def simulate_energy_production(date: datetime.datetime) -> float:
-
     hour = date.hour
     minute = date.minute
     
-    # Basic curve for solar production based on time of day (higher at noon)
-    if 6 <= hour <= 18:  # Solar production only between 6 AM and 6 PM
-        # Calculate time factor based on proximity to noon
+    if 6 <= hour <= 18:
         time_factor = max(0, 1 - abs(12 - (hour + minute / 60)) / 6)
     else:
-        time_factor = 0  # No production at night
+        time_factor = 0
 
     month = date.month
     
-    if month in [12, 1, 2]:  # Winter
+    if month in [12, 1, 2]:
         season_factor = 0.3
-    elif month in [3, 4, 5]:  # Spring
+    elif month in [3, 4, 5]:
         season_factor = 0.5
-    elif month in [6, 7, 8]:  # Summer
+    elif month in [6, 7, 8]:
         season_factor = 0.8
-    elif month in [9, 10, 11]:  # Autumn
+    elif month in [9, 10, 11]:
         season_factor = 0.6
 
     base_production = 0.05  
-
     fluctuation = random.uniform(0.6, 1.0)
-
-    # Calculate the final production for the minute
     production = base_production * time_factor * season_factor * fluctuation
     
     return round(production, 3)
 
-# Kafka topic to produce messages to
 topic = 'energy_produced'
 
 kafka_config = {
-    'bootstrap_servers': ['kafka:9092']
+    'bootstrap.servers': os.getenv('WARPSTREAM_BOOTSTRAP_SERVERS', 'warpstream:9092'),
+    'message.timeout.ms': 120000,
+    'socket.keepalive.enable': True,
+    'socket.timeout.ms': 30000,
+    'connections.max.idle.ms': 300000
 }
 
-# Wait for Kafka to be ready
-print("Waiting for Kafka broker to be available...")
+print("Waiting for WarpStream broker to be available...")
 max_retries = 30
 retry_count = 0
 while not is_broker_available() and retry_count < max_retries:
@@ -66,16 +72,12 @@ if retry_count >= max_retries:
     print("Kafka broker did not become available. Exiting.")
     exit(1)
 
-print("Kafka broker is available. Starting producer...")
+print("WarpStream broker is available. Starting producer...")
 
-# Kafka producer
-producer = KafkaProducer(**kafka_config)
+producer = Producer(kafka_config)
 
 if __name__ == "__main__":
-
     try:
-    # Produce messages to the Kafka topic
-        start = datetime.datetime.now()
         current_time = datetime.datetime(1997, 5, 1, 0, 0, 0)
         while True:
             for meter_id in range(1, 21):
@@ -86,14 +88,11 @@ if __name__ == "__main__":
                     "energy_produced": energy_produced
                 }
                 message_str = json.dumps(data).encode('utf-8')
-                producer.send(topic, message_str)
+                producer.produce(topic, value=message_str, callback=delivery_report)
             current_time += datetime.timedelta(minutes=1)
             if current_time.day != 1:
                 time.sleep(0.8)
 
     finally:
         print('Producer closed')
-
-        # Wait for any outstanding messages to be delivered and delivery reports received
-        producer.flush() 
-        producer.close()
+        producer.flush()

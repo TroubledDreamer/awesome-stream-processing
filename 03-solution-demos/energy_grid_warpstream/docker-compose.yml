@@ -1,3 +1,5 @@
+version: "3.8"
+
 services:
   # -------------------------------------------------------
   # MinIO (local S3-compatible backend for WarpStream)
@@ -11,15 +13,24 @@ services:
     environment:
       MINIO_ROOT_USER: admin
       MINIO_ROOT_PASSWORD: admin123
+    volumes:
+      - minio_data:/data
+      - "./minio-init.sh:/docker-entrypoint-extra.d/minio-init.sh"
     command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
     networks:
-      - kafka-net
+      - warpstream-net
 
   # -------------------------------------------------------
   # RisingWave
   # -------------------------------------------------------
   risingwave:
     image: risingwavelabs/risingwave:v1.10.0
+    container_name: risingwave
     ports:
       - 5690:5690
       - 5691:5691
@@ -28,7 +39,7 @@ services:
       - /risingwave/bin/risingwave
       - playground
     networks:
-      - kafka-net
+      - warpstream-net
 
   # -------------------------------------------------------
   # PostgreSQL
@@ -50,7 +61,7 @@ services:
     restart: always
     container_name: postgres
     networks:
-      - kafka-net
+      - warpstream-net
 
   postgres_prepare:
     image: postgres:15
@@ -66,7 +77,7 @@ services:
     container_name: postgres_prepare
     restart: on-failure
     networks:
-      - kafka-net
+      - warpstream-net
 
   # -------------------------------------------------------
   # Grafana
@@ -83,37 +94,55 @@ services:
       - "./grafana_configs/dashboard.yaml:/etc/grafana/provisioning/dashboards/main.yaml"
       - "./grafana_configs:/var/lib/grafana/dashboards"
     networks:
-      - kafka-net
+      - warpstream-net
 
   # -------------------------------------------------------
-  # Kafka Producer (runs WarpStream Local Mode internally)
+  # Data Producer
   # -------------------------------------------------------
-  kafka-producer:
+  warpstream-producer:
     build:
       context: .
       dockerfile: data-producers/Dockerfile
     environment:
-      # Local mode config: NO Kafka broker needed
-      WARPSTREAM_LOCAL: "true"
-      WARPSTREAM_STORAGE_BACKEND: "s3"
-      WARPSTREAM_S3_BUCKET: "warpstream"
-      WARPSTREAM_S3_ENDPOINT: "http://minio:9000"
-      WARPSTREAM_S3_REGION: "us-east-1"
-      WARPSTREAM_S3_FORCE_PATH_STYLE: "true"
-      AWS_ACCESS_KEY_ID: "admin"
-      AWS_SECRET_ACCESS_KEY: "admin123"
-
-      # Your existing variable stays (ignored in local mode)
-      KAFKA_BOOTSTRAP_SERVERS: "localhost:9092"
+      WARPSTREAM_BOOTSTRAP_SERVERS: "warpstream:9092"
     depends_on:
-      - minio
+      - warpstream
     restart: always
     networks:
-      - kafka-net
+      - warpstream-net
+
+  # -------------------------------------------------------
+  # WarpStream Agent (Persistent Storage Mode with MinIO)
+  # -------------------------------------------------------
+  warpstream:
+    image: public.ecr.aws/warpstream-labs/warpstream_agent:latest
+    container_name: warpstream
+    ports:
+      - "9092:9092"  # Kafka-compatible API
+      - "9094:9094"
+    command: ["agent"]
+    environment:
+      WARPSTREAM_AGENT_KEY: "aks_8a2c1a1608343f55a77dd5a1b467dfd68e06910af922bf0d2a2b60ab8feb8740"
+      WARPSTREAM_DEFAULT_VIRTUAL_CLUSTER_ID: "vci_99b4c6f5_c130_43bb_a908_78c0a068a878"
+      WARPSTREAM_REGION: "us-east-1"
+      WARPSTREAM_BUCKET_URL: "s3://warpstream?endpoint=http://minio:9000&s3ForcePathStyle=true&region=us-east-1"
+      WARPSTREAM_AWS_ACCESS_KEY_ID: "admin"
+      WARPSTREAM_AWS_SECRET_ACCESS_KEY: "admin123"
+    depends_on:
+      minio:
+        condition: service_healthy
+    networks:
+      - warpstream-net
 
 # -------------------------------------------------------
 # Network
 # -------------------------------------------------------
 networks:
-  kafka-net:
+  warpstream-net:
     driver: bridge
+
+# -------------------------------------------------------
+# Volumes
+# -------------------------------------------------------
+volumes:
+  minio_data:
