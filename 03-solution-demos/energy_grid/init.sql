@@ -8,7 +8,7 @@ CREATE SOURCE IF NOT EXISTS energy_consume (
   ) WITH (
     connector = 'kafka',
     topic = 'energy_consumed',
-    properties.bootstrap.server = 'kafka:9092'
+    properties.bootstrap.server = 'warpstream:9092'
 ) FORMAT PLAIN ENCODE JSON;
 
 CREATE SOURCE IF NOT EXISTS energy_produce (
@@ -18,7 +18,7 @@ CREATE SOURCE IF NOT EXISTS energy_produce (
   ) WITH (
     connector = 'kafka',
     topic = 'energy_produced',
-    properties.bootstrap.server = 'kafka:9092'
+    properties.bootstrap.server = 'warpstream:9092'
 ) FORMAT PLAIN ENCODE JSON;
 
 -- Create PostgreSQL CDC source and customers table

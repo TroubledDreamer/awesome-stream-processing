@@ -1,58 +1,21 @@
+"use client";
+import { useEffect, useState } from "react";
+
 type TimePoint = { label: string; consumption: number; production: number };
 type Count = { label: string; value: number };
 
-const pricePlanBreakdown: Count[] = [
-  { label: "Tier", value: 11 },
-  { label: "Time of Use", value: 9 },
-];
-
-const timeSeries: TimePoint[] = [
-  { label: "10:00", consumption: 900, production: 960 },
-  { label: "10:10", consumption: 980, production: 940 },
-  { label: "10:20", consumption: 1020, production: 970 },
-  { label: "10:30", consumption: 990, production: 980 },
-  { label: "10:40", consumption: 1010, production: 995 },
-  { label: "10:50", consumption: 1030, production: 1005 },
-  { label: "11:00", consumption: 1050, production: 1010 },
-];
-
-const netFlow = timeSeries.map((p) => ({
-  label: p.label,
-  value: p.production - p.consumption,
-}));
-
-const topHouseholds: Count[] = [
-  { label: "HH-58231", value: 1250 },
-  { label: "HH-79426", value: 1198 },
-  { label: "HH-10853", value: 1215 },
-  { label: "HH-93104", value: 1180 },
-  { label: "HH-68310", value: 1202 },
-];
-
-const planPerformance = [
-  { label: "Tier", consumption: 980, production: 1020 },
-  { label: "Time of Use", consumption: 1015, production: 990 },
-];
-
-const billingImpact: Count[] = [
-  { label: "HH-58231", value: 67.5 },
-  { label: "HH-79426", value: 78 },
-  { label: "HH-10853", value: 57 },
-  { label: "HH-93104", value: 91.5 },
-  { label: "HH-45227", value: 64.5 },
-];
-
-const cityCounts: Count[] = [
-  { label: "Springfield", value: 4 },
-  { label: "Shelbyville", value: 4 },
-  { label: "Ogdenville", value: 4 },
-  { label: "Capital City", value: 3 },
-  { label: "North Haverbrook", value: 5 },
-];
-
-function linePath(points: TimePoint[], key: "consumption" | "production", width: number, height: number) {
-  const max = Math.max(...points.map((p) => Math.max(p.consumption, p.production)));
-  const min = Math.min(...points.map((p) => Math.min(p.consumption, p.production)));
+function linePath(
+  points: TimePoint[],
+  key: "consumption" | "production",
+  width: number,
+  height: number
+) {
+  const max = Math.max(
+    ...points.map((p) => Math.max(p.consumption, p.production))
+  );
+  const min = Math.min(
+    ...points.map((p) => Math.min(p.consumption, p.production))
+  );
   const range = max - min || 1;
   return points
     .map((p, idx) => {
@@ -71,7 +34,12 @@ function Donut({ data }: { data: Count[] }) {
   >((acc, slice, idx) => {
     const value = (slice.value / total) * 100;
     const start = idx === 0 ? 0 : acc[idx - 1].start + acc[idx - 1].value;
-    acc.push({ start, value, label: slice.label, color: colors[idx % colors.length] });
+    acc.push({
+      start,
+      value,
+      label: slice.label,
+      color: colors[idx % colors.length],
+    });
     return acc;
   }, []);
   return (
@@ -101,7 +69,15 @@ function Donut({ data }: { data: Count[] }) {
   );
 }
 
-function BarList({ data, color = "#0b6b6b", suffix = "" }: { data: Count[]; color?: string; suffix?: string }) {
+function BarList({
+  data,
+  color = "#0b6b6b",
+  suffix = "",
+}: {
+  data: Count[];
+  color?: string;
+  suffix?: string;
+}) {
   const max = Math.max(...data.map((d) => d.value), 1);
   return (
     <div className="flex flex-col gap-3">
@@ -130,10 +106,205 @@ function BarList({ data, color = "#0b6b6b", suffix = "" }: { data: Count[]; colo
 }
 
 export default function Visuals() {
-  const consumptionPath = linePath(timeSeries, "consumption", 300, 140);
-  const productionPath = linePath(timeSeries, "production", 300, 140);
+  const [timeSeries, setTimeSeries] = useState<TimePoint[]>([]);
+  const [topHouseholds, setTopHouseholds] = useState<Count[]>([]);
+  const [billingImpact, setBillingImpact] = useState<Count[]>([]);
+  const [pricePlanBreakdown, setPricePlanBreakdown] = useState<Count[]>([]);
+  const [planPerformance, setPlanPerformance] = useState<
+    Array<{ label: string; consumption: number; production: number }>
+  >([]);
+  const [loading, setLoading] = useState(true);
 
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const [energyRes, billsRes] = await Promise.all([
+          fetch("/api/energy"),
+          fetch("/api/bills"),
+        ]);
+
+        const energyData = await energyRes.json();
+        const billsData = await billsRes.json();
+
+        // Build time series from API data
+        const series: TimePoint[] = (energyData.timeSeries || [])
+          .slice(0, 7)
+          .reverse()
+          .map((row: any) => {
+            const time = new Date(row.window_end);
+            return {
+              label: time.toLocaleTimeString("en-US", {
+                hour: "2-digit",
+                minute: "2-digit",
+              }),
+              consumption: row.energy_consumed || 0,
+              production: row.energy_produced || 0,
+            };
+          });
+        setTimeSeries(series);
+
+        // Top households by consumption from aggregated totals
+        const topMeters = (energyData.totals || [])
+          .sort((a: any, b: any) => b.total_consumed - a.total_consumed)
+          .slice(0, 5)
+          .map((row: any) => ({
+            label: String(row.meter_id),
+            value: Math.round(row.total_consumed * 10) / 10,
+          }));
+        setTopHouseholds(topMeters);
+
+        // Billing impact
+        const allBills = [
+          ...(billsData.tiered || []),
+          ...(billsData.tou || []),
+        ];
+        const topBills = allBills
+          .sort(
+            (a: any, b: any) =>
+              (b.current_bill || b.monthly_cost || 0) -
+              (a.current_bill || a.monthly_cost || 0)
+          )
+          .slice(0, 5)
+          .map((row: any) => ({
+            label: String(row.meter_id),
+            value:
+              Math.round((row.current_bill || row.monthly_cost || 0) * 100) /
+              100,
+          }));
+        setBillingImpact(topBills);
+
+        // Price plan breakdown - count unique meters
+        const uniqueTiered = new Set(
+          billsData.tiered?.map((r: any) => r.meter_id) || []
+        );
+        const uniqueTou = new Set(
+          billsData.tou?.map((r: any) => r.meter_id) || []
+        );
+        setPricePlanBreakdown([
+          { label: "Tier", value: uniqueTiered.size },
+          { label: "Time of Use", value: uniqueTou.size },
+        ]);
+
+        // Plan Performance - calculate avg consumption/production by plan type
+        const tieredMeters = new Set(
+          billsData.tiered?.map((r: any) => r.meter_id) || []
+        );
+        const touMeters = new Set(
+          billsData.tou?.map((r: any) => r.meter_id) || []
+        );
+
+        const tieredTotals = (energyData.totals || [])
+          .filter((r: any) => tieredMeters.has(r.meter_id))
+          .reduce(
+            (acc: any, r: any) => ({
+              consumption: acc.consumption + (r.total_consumed || 0),
+              production: acc.production + (r.total_produced || 0),
+              count: acc.count + 1,
+            }),
+            { consumption: 0, production: 0, count: 0 }
+          );
+
+        const touTotals = (energyData.totals || [])
+          .filter((r: any) => touMeters.has(r.meter_id))
+          .reduce(
+            (acc: any, r: any) => ({
+              consumption: acc.consumption + (r.total_consumed || 0),
+              production: acc.production + (r.total_produced || 0),
+              count: acc.count + 1,
+            }),
+            { consumption: 0, production: 0, count: 0 }
+          );
+
+        setPlanPerformance([
+          {
+            label: "Tier",
+            consumption:
+              tieredTotals.count > 0
+                ? Math.round(
+                    (tieredTotals.consumption / tieredTotals.count) * 10
+                  ) / 10
+                : 0,
+            production:
+              tieredTotals.count > 0
+                ? Math.round(
+                    (tieredTotals.production / tieredTotals.count) * 10
+                  ) / 10
+                : 0,
+          },
+          {
+            label: "Time of Use",
+            consumption:
+              touTotals.count > 0
+                ? Math.round((touTotals.consumption / touTotals.count) * 10) /
+                  10
+                : 0,
+            production:
+              touTotals.count > 0
+                ? Math.round((touTotals.production / touTotals.count) * 10) / 10
+                : 0,
+          },
+        ]);
+
+        console.log("Time series data:", series);
+        console.log("Time series length:", series.length);
+        if (series.length > 0) {
+          console.log("Sample data point:", series[0]);
+          console.log(
+            "Consumption range:",
+            Math.min(...series.map((s) => s.consumption)),
+            "-",
+            Math.max(...series.map((s) => s.consumption))
+          );
+          console.log(
+            "Production range:",
+            Math.min(...series.map((s) => s.production)),
+            "-",
+            Math.max(...series.map((s) => s.production))
+          );
+        }
+
+        setLoading(false);
+      } catch (error) {
+        console.error("Failed to fetch visuals data:", error);
+        setLoading(false);
+      }
+    };
+
+    fetchData();
+    const interval = setInterval(fetchData, 5000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const netFlow = timeSeries.map((p) => ({
+    label: p.label,
+    value: p.production - p.consumption,
+  }));
+
+  const cityCounts: Count[] = [
+    { label: "Springfield", value: 4 },
+    { label: "Shelbyville", value: 4 },
+    { label: "Ogdenville", value: 4 },
+    { label: "Capital City", value: 3 },
+    { label: "North Haverbrook", value: 5 },
+  ];
+
+  const consumptionPath = timeSeries.length
+    ? linePath(timeSeries, "consumption", 300, 140)
+    : "";
+  const productionPath = timeSeries.length
+    ? linePath(timeSeries, "production", 300, 140)
+    : "";
   const netMax = Math.max(...netFlow.map((n) => Math.abs(n.value)), 1);
+
+  if (loading) {
+    return (
+      <section className="mx-auto w-full max-w-screen-2xl px-6 pb-8">
+        <div className="text-center py-8 text-zinc-500">
+          Loading live data from RisingWave...
+        </div>
+      </section>
+    );
+  }
 
   return (
     <section className="mx-auto w-full max-w-screen-2xl px-6 pb-8">
@@ -150,7 +321,11 @@ export default function Visuals() {
                 <div key={d.label} className="flex items-center gap-3">
                   <span
                     className="h-3 w-3 rounded-full"
-                    style={{ background: ["#0b6b6b", "#0f3a4f", "#0b1b33", "#0c777a"][idx % 4] }}
+                    style={{
+                      background: ["#0b6b6b", "#0f3a4f", "#0b1b33", "#0c777a"][
+                        idx % 4
+                      ],
+                    }}
                   />
                   <div className="flex items-center gap-2">
                     <span className="font-medium">{d.label}</span>
@@ -165,78 +340,127 @@ export default function Visuals() {
         <div className="col-span-1 lg:col-span-2 rounded-2xl border border-[#dbe5f0] bg-white px-5 py-5 text-[#0b1b33] shadow-[0_18px_50px_-24px_rgba(11,27,51,0.35)]">
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-semibold">Consumption vs Production</h2>
-            <span className="text-xs text-[#4a5568]">Dummy last hour</span>
+            <span className="text-xs text-[#4a5568]">Live from RisingWave</span>
           </div>
           <div className="mt-4">
-            <svg viewBox="0 0 320 180" className="h-48 w-full">
-              <defs>
-                <linearGradient id="consumptionGradient" x1="0" x2="0" y1="0" y2="1">
-                  <stop offset="0%" stopColor="#0b6b6b" stopOpacity="0.3" />
-                  <stop offset="100%" stopColor="#0b6b6b" stopOpacity="0" />
-                </linearGradient>
-                <linearGradient id="productionGradient" x1="0" x2="0" y1="0" y2="1">
-                  <stop offset="0%" stopColor="#0f3a4f" stopOpacity="0.25" />
-                  <stop offset="100%" stopColor="#0f3a4f" stopOpacity="0" />
-                </linearGradient>
-              </defs>
-              <polyline
-                fill="none"
-                stroke="#0b6b6b"
-                strokeWidth="2.5"
-                strokeLinejoin="round"
-                strokeLinecap="round"
-                points={consumptionPath}
-              />
-              <polyline
-                fill="none"
-                stroke="#0f3a4f"
-                strokeWidth="2.5"
-                strokeLinejoin="round"
-                strokeLinecap="round"
-                points={productionPath}
-              />
-            </svg>
-            <div className="mt-2 flex items-center gap-4 text-xs text-[#4a5568]">
-              <div className="flex items-center gap-2">
-                <span className="h-3 w-3 rounded-full bg-[#0b6b6b]" />
-                Consumption
+            {timeSeries.length === 0 ? (
+              <div className="h-48 flex items-center justify-center text-sm text-zinc-500">
+                No time series data available (waiting for data to
+                accumulate...)
               </div>
-              <div className="flex items-center gap-2">
-                <span className="h-3 w-3 rounded-full bg-[#0f3a4f]" />
-                Production
-              </div>
-            </div>
+            ) : (
+              <>
+                <svg viewBox="0 0 320 180" className="h-48 w-full">
+                  <defs>
+                    <linearGradient
+                      id="consumptionGradient"
+                      x1="0"
+                      x2="0"
+                      y1="0"
+                      y2="1"
+                    >
+                      <stop offset="0%" stopColor="#0b6b6b" stopOpacity="0.3" />
+                      <stop offset="100%" stopColor="#0b6b6b" stopOpacity="0" />
+                    </linearGradient>
+                    <linearGradient
+                      id="productionGradient"
+                      x1="0"
+                      x2="0"
+                      y1="0"
+                      y2="1"
+                    >
+                      <stop
+                        offset="0%"
+                        stopColor="#0f3a4f"
+                        stopOpacity="0.25"
+                      />
+                      <stop offset="100%" stopColor="#0f3a4f" stopOpacity="0" />
+                    </linearGradient>
+                  </defs>
+                  {consumptionPath && (
+                    <polyline
+                      fill="none"
+                      stroke="#0b6b6b"
+                      strokeWidth="2.5"
+                      strokeLinejoin="round"
+                      strokeLinecap="round"
+                      points={consumptionPath}
+                    />
+                  )}
+                  {productionPath && (
+                    <polyline
+                      fill="none"
+                      stroke="#0f3a4f"
+                      strokeWidth="2.5"
+                      strokeLinejoin="round"
+                      strokeLinecap="round"
+                      points={productionPath}
+                    />
+                  )}
+                </svg>
+                <div className="mt-2 flex items-center gap-4 text-xs text-[#4a5568]">
+                  <div className="flex items-center gap-2">
+                    <span className="h-3 w-3 rounded-full bg-[#0b6b6b]" />
+                    Consumption
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="h-3 w-3 rounded-full bg-[#0f3a4f]" />
+                    Production
+                  </div>
+                  <span className="ml-auto text-xs">
+                    {timeSeries.length} data points
+                  </span>
+                </div>
+              </>
+            )}
           </div>
         </div>
 
         <div className="rounded-2xl border border-[#dbe5f0] bg-white px-5 py-5 text-[#0b1b33] shadow-[0_18px_50px_-24px_rgba(11,27,51,0.35)]">
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-semibold">Net Grid Flow</h2>
-            <span className="text-xs text-[#4a5568]">Production − Consumption</span>
+            <span className="text-xs text-[#4a5568]">
+              Production − Consumption
+            </span>
           </div>
-          <div className="mt-4 grid grid-cols-5 gap-3">
-            {netFlow.map((n) => {
-              const height = Math.abs(n.value) / netMax * 100;
-              const positive = n.value >= 0;
-              return (
-                <div key={n.label} className="flex flex-col items-center gap-2">
-                  <div className="relative h-24 w-10 rounded bg-[#e6edf5]">
+          <div className="mt-4">
+            {netFlow.length === 0 ? (
+              <div className="h-24 flex items-center justify-center text-sm text-zinc-500">
+                No net flow data available
+              </div>
+            ) : (
+              <div className="grid grid-cols-5 gap-3">
+                {netFlow.slice(0, 7).map((n) => {
+                  const height = (Math.abs(n.value) / netMax) * 100;
+                  const positive = n.value >= 0;
+                  return (
                     <div
-                      className={`absolute bottom-0 w-full rounded ${positive ? "bg-[#0b6b6b]" : "bg-[#f56565]"}`}
-                      style={{ height: `${height}%` }}
-                    />
-                  </div>
-                  <span className="text-xs text-[#4a5568]">{n.label}</span>
-                </div>
-              );
-            })}
+                      key={n.label}
+                      className="flex flex-col items-center gap-2"
+                    >
+                      <div className="relative h-24 w-10 rounded bg-[#e6edf5]">
+                        <div
+                          className={`absolute bottom-0 w-full rounded ${
+                            positive ? "bg-[#0b6b6b]" : "bg-[#f56565]"
+                          }`}
+                          style={{ height: `${height}%` }}
+                        />
+                      </div>
+                      <span className="text-xs text-[#4a5568]">{n.label}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </div>
 
         <div className="rounded-2xl border border-[#dbe5f0] bg-white px-5 py-5 text-[#0b1b33] shadow-[0_18px_50px_-24px_rgba(11,27,51,0.35)]">
           <div className="flex items-center justify-between">
-            <h2 className="text-lg font-semibold">Top Households by Consumption</h2>
-            <span className="text-xs text-[#4a5568]">Dummy kWh</span>
+            <h2 className="text-lg font-semibold">
+              Top Households by Consumption
+            </h2>
+            <span className="text-xs text-[#4a5568]">Live kWh</span>
           </div>
           <div className="mt-4">
             <BarList data={topHouseholds} color="#0b6b6b" suffix=" kWh" />
@@ -250,27 +474,60 @@ export default function Visuals() {
           </div>
           <div className="mt-4 space-y-3">
             {planPerformance.map((p) => (
-              <div key={p.label} className="space-y-2 rounded-lg bg-[#f7fbff] px-3 py-3">
+              <div
+                key={p.label}
+                className="space-y-2 rounded-lg bg-[#f7fbff] px-3 py-3"
+              >
                 <div className="flex items-center justify-between text-sm font-medium">
                   <span>{p.label}</span>
-                  <span className="text-xs text-[#4a5568]">Consumption vs Production</span>
+                  <span className="text-xs text-[#4a5568]">
+                    Consumption vs Production
+                  </span>
                 </div>
                 <div className="space-y-1">
                   <div className="flex items-center justify-between text-xs text-[#4a5568]">
                     <span>Consumption</span>
-                    <span>{p.consumption} kWh</span>
+                    <span>{p.consumption.toFixed(1)} kWh</span>
                   </div>
                   <div className="h-2 rounded-full bg-[#e6edf5]">
-                    <div className="h-2 rounded-full bg-[#0b6b6b]" style={{ width: `${(p.consumption / 1200) * 100}%` }} />
+                    <div
+                      className="h-2 rounded-full bg-[#0b6b6b]"
+                      style={{
+                        width: `${Math.min(
+                          100,
+                          (p.consumption /
+                            Math.max(
+                              ...planPerformance.map((x) =>
+                                Math.max(x.consumption, x.production)
+                              )
+                            )) *
+                            100
+                        )}%`,
+                      }}
+                    />
                   </div>
                 </div>
                 <div className="space-y-1">
                   <div className="flex items-center justify-between text-xs text-[#4a5568]">
                     <span>Production</span>
-                    <span>{p.production} kWh</span>
+                    <span>{p.production.toFixed(1)} kWh</span>
                   </div>
                   <div className="h-2 rounded-full bg-[#e6edf5]">
-                    <div className="h-2 rounded-full bg-[#0f3a4f]" style={{ width: `${(p.production / 1200) * 100}%` }} />
+                    <div
+                      className="h-2 rounded-full bg-[#0f3a4f]"
+                      style={{
+                        width: `${Math.min(
+                          100,
+                          (p.production /
+                            Math.max(
+                              ...planPerformance.map((x) =>
+                                Math.max(x.consumption, x.production)
+                              )
+                            )) *
+                            100
+                        )}%`,
+                      }}
+                    />
                   </div>
                 </div>
               </div>
@@ -281,7 +538,7 @@ export default function Visuals() {
         <div className="rounded-2xl border border-[#dbe5f0] bg-white px-5 py-5 text-[#0b1b33] shadow-[0_18px_50px_-24px_rgba(11,27,51,0.35)]">
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-semibold">Billing Impact</h2>
-            <span className="text-xs text-[#4a5568]">USD (dummy)</span>
+            <span className="text-xs text-[#4a5568]">Live USD</span>
           </div>
           <div className="mt-4">
             <BarList data={billingImpact} color="#0f3a4f" suffix=" $" />

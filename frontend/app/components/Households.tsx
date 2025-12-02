@@ -1,3 +1,6 @@
+"use client";
+import { useEffect, useState } from "react";
+
 type Household = {
   id: string;
   address: string;
@@ -7,15 +10,21 @@ type Household = {
   status: "Paid" | "Pending" | "Overdue";
 };
 
-const households: Household[] = [
-  { id: "HH-58231", address: "100 Energy Lane", consumption: 450, production: 510, bill: 67.5, status: "Paid" },
-  { id: "HH-79426", address: "102 Energy Lane", consumption: 520, production: 480, bill: 78, status: "Overdue" },
-  { id: "HH-10853", address: "104 Energy Lane", consumption: 380, production: 400, bill: 57, status: "Paid" },
-  { id: "HH-93104", address: "106 Energy Lane", consumption: 610, production: 600, bill: 91.5, status: "Pending" },
-  { id: "HH-45227", address: "108 Energy Lane", consumption: 430, production: 490, bill: 64.5, status: "Paid" },
-  { id: "HH-68310", address: "110 Energy Lane", consumption: 490, production: 470, bill: 73.5, status: "Paid" },
-  { id: "HH-81244", address: "112 Energy Lane", consumption: 505, production: 515, bill: 69.75, status: "Pending" },
-  { id: "HH-99102", address: "114 Energy Lane", consumption: 470, production: 495, bill: 66.1, status: "Paid" },
+const mockAddresses = [
+  "100 Energy Lane",
+  "102 Energy Lane",
+  "104 Energy Lane",
+  "106 Energy Lane",
+  "108 Energy Lane",
+  "110 Energy Lane",
+  "112 Energy Lane",
+  "114 Energy Lane",
+];
+
+const mockStatuses: Array<"Paid" | "Pending" | "Overdue"> = [
+  "Paid",
+  "Pending",
+  "Overdue",
 ];
 
 function statusStyles(status: Household["status"]) {
@@ -37,11 +46,91 @@ type HouseholdsProps = {
 };
 
 export default function Households({ selectedId, onSelect }: HouseholdsProps) {
+  const [households, setHouseholds] = useState<Household[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const [energyRes, billsRes, customersRes] = await Promise.all([
+          fetch("/api/energy"),
+          fetch("/api/bills"),
+          fetch("/api/customers"),
+        ]);
+
+        const energyData = await energyRes.json();
+        const billsData = await billsRes.json();
+
+        // Combine tiered and TOU bills - bills API already has address and current_energy_consumed
+        const allBills = [
+          ...(billsData.tiered || []),
+          ...(billsData.tou || []),
+        ];
+
+        // Get energy totals for meters that might not have bills yet
+        const energyTotalsMap = new Map<
+          string,
+          { consumption: number; production: number }
+        >();
+        (energyData.totals || []).forEach((row: any) => {
+          energyTotalsMap.set(String(row.meter_id), {
+            consumption: row.total_consumed || 0,
+            production: row.total_produced || 0,
+          });
+        });
+
+        const householdsData: Household[] = allBills.map(
+          (row: any, idx: number) => {
+            const meterId = String(row.meter_id);
+            const energyTotals = energyTotalsMap.get(meterId) || {
+              consumption: 0,
+              production: 0,
+            };
+
+            return {
+              id: meterId,
+              address: row.address || "Unknown Address",
+              // Use current_energy_consumed from bills if available, otherwise use totals
+              consumption:
+                Math.round(
+                  (row.current_energy_consumed || energyTotals.consumption) * 10
+                ) / 10,
+              production: Math.round(energyTotals.production * 10) / 10,
+              bill: row.current_bill || row.monthly_cost || 0,
+              status: mockStatuses[idx % mockStatuses.length],
+            };
+          }
+        );
+
+        setHouseholds(householdsData);
+      } catch (error) {
+        console.error("Failed to fetch household data:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchData();
+    const interval = setInterval(fetchData, 5000);
+    return () => clearInterval(interval);
+  }, []);
+  if (loading) {
+    return (
+      <section className="mx-auto w-full max-w-screen-2xl px-6 pb-12">
+        <div className="text-center py-8 text-zinc-500">
+          Loading live data from RisingWave...
+        </div>
+      </section>
+    );
+  }
+
   return (
     <section className="mx-auto w-full max-w-screen-2xl px-6 pb-12">
       <div className="flex flex-wrap items-start justify-between gap-4 pb-4">
         <div className="flex min-w-72 flex-col gap-1">
-          <p className="text-2xl font-semibold text-[#0b1b33]">Monthly Billing Report</p>
+          <p className="text-2xl font-semibold text-[#0b1b33]">
+            Monthly Billing Report
+          </p>
           <p className="text-sm text-zinc-500">
             Review and compare monthly energy data for all households.
           </p>
@@ -79,60 +168,66 @@ export default function Households({ selectedId, onSelect }: HouseholdsProps) {
         </label>
       </div>
 
-        <div className="overflow-x-auto rounded-xl border border-[#0b6b6b] bg-white">
-          <table className="w-full text-left text-sm">
-            <thead className="border-b border-[#0b6b6b] bg-[#0b1b33] text-xs uppercase text-white">
-              <tr>
-                <th className="px-6 py-3 font-semibold">Household ID</th>
-                <th className="px-6 py-3 font-semibold">Address</th>
-                <th className="px-6 py-3 font-semibold">Consumption (kWh)</th>
-                <th className="px-6 py-3 font-semibold">Production (kWh)</th>
+      <div className="overflow-x-auto rounded-xl border border-[#0b6b6b] bg-white">
+        <table className="w-full text-left text-sm">
+          <thead className="border-b border-[#0b6b6b] bg-[#0b1b33] text-xs uppercase text-white">
+            <tr>
+              <th className="px-6 py-3 font-semibold">Household ID</th>
+              <th className="px-6 py-3 font-semibold">Address</th>
+              <th className="px-6 py-3 font-semibold">Consumption (kWh)</th>
+              <th className="px-6 py-3 font-semibold">Production (kWh)</th>
               <th className="px-6 py-3 font-semibold">Net (kWh)</th>
               <th className="px-6 py-3 font-semibold">Total Bill ($)</th>
               <th className="px-6 py-3 font-semibold">Payment Status</th>
               <th className="px-6 py-3 font-semibold">Actions</th>
             </tr>
           </thead>
-            <tbody className="text-zinc-900">
-              {households.map((home) => {
-                const net = home.production - home.consumption;
-                const netClass = net >= 0 ? "text-[#009990]" : "text-red-600";
-                return (
-                  <tr
-                    key={home.id}
-                    className={`border-b border-[#e2e8f0] last:border-0 transition hover:bg-[#f7fbff] ${
-                      selectedId === home.id ? "bg-[#eef7ff]" : ""
-                    }`}
-                    onClick={() => onSelect?.(home.id)}
-                    role={onSelect ? "button" : undefined}
-                    tabIndex={onSelect ? 0 : -1}
-                  >
-                    <td className="px-6 py-3 font-medium text-[#0b1b33]">{home.id}</td>
-                    <td className="px-6 py-3 text-sm text-zinc-600">{home.address}</td>
-                    <td className="px-6 py-3">{home.consumption}</td>
-                    <td className="px-6 py-3">{home.production}</td>
-                    <td className={`px-6 py-3 font-medium ${netClass}`}>
-                      {net > 0 ? "+" : ""}
-                    {net}
+          <tbody className="text-zinc-900">
+            {households.map((home) => {
+              const net = home.production - home.consumption;
+              const netClass = net >= 0 ? "text-[#009990]" : "text-red-600";
+              return (
+                <tr
+                  key={home.id}
+                  className={`border-b border-[#e2e8f0] last:border-0 transition hover:bg-[#f7fbff] ${
+                    selectedId === home.id ? "bg-[#eef7ff]" : ""
+                  }`}
+                  onClick={() => onSelect?.(home.id)}
+                  role={onSelect ? "button" : undefined}
+                  tabIndex={onSelect ? 0 : -1}
+                >
+                  <td className="px-6 py-3 font-medium text-[#0b1b33]">
+                    {home.id}
+                  </td>
+                  <td className="px-6 py-3 text-sm text-zinc-600">
+                    {home.address}
+                  </td>
+                  <td className="px-6 py-3">{home.consumption.toFixed(1)}</td>
+                  <td className="px-6 py-3">{home.production.toFixed(1)}</td>
+                  <td className={`px-6 py-3 font-medium ${netClass}`}>
+                    {net > 0 ? "+" : ""}
+                    {net.toFixed(1)}
                   </td>
                   <td className="px-6 py-3">${home.bill.toFixed(2)}</td>
-                    <td className="px-6 py-3">
-                      <span
-                        className={`inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-xs font-medium ${statusStyles(
-                          home.status,
-                        )}`}
-                      >
-                        <span className="size-1.5 rounded-full bg-current" />
-                        {home.status}
-                      </span>
-                    </td>
-                    <td className="px-6 py-3">
-                      <button className="text-[#0b6b6b] font-semibold hover:underline">View</button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
+                  <td className="px-6 py-3">
+                    <span
+                      className={`inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-xs font-medium ${statusStyles(
+                        home.status
+                      )}`}
+                    >
+                      <span className="size-1.5 rounded-full bg-current" />
+                      {home.status}
+                    </span>
+                  </td>
+                  <td className="px-6 py-3">
+                    <button className="text-[#0b6b6b] font-semibold hover:underline">
+                      View
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
         </table>
         <div className="flex items-center justify-between px-6 py-4 text-sm text-zinc-600">
           <span>

@@ -1,6 +1,7 @@
 import json
 import datetime
 from kafka import KafkaProducer
+from kafka.errors import NoBrokersAvailable
 import time
 import random
 
@@ -12,6 +13,29 @@ def is_broker_available():
     except Exception as e:
         print(f"Broker not available: {e}")
         return False
+
+def create_producer_with_retry(config, max_retries=60, retry_delay=5):
+    """Create Kafka producer with retry logic"""
+    for attempt in range(max_retries):
+        try:
+            print(f"Attempting to connect to Kafka (attempt {attempt + 1}/{max_retries})...")
+            producer = KafkaProducer(**config)
+            print("Successfully connected to Kafka!")
+            return producer
+        except NoBrokersAvailable as e:
+            print(f"No brokers available (attempt {attempt + 1}/{max_retries}): {e}")
+            if attempt < max_retries - 1:
+                print(f"Retrying in {retry_delay} seconds...")
+                time.sleep(retry_delay)
+            else:
+                print("Max retries reached. Exiting.")
+                raise
+        except Exception as e:
+            print(f"Unexpected error (attempt {attempt + 1}/{max_retries}): {e}")
+            if attempt < max_retries - 1:
+                time.sleep(retry_delay)
+            else:
+                raise
 
 def simulate_energy_production(date: datetime.datetime) -> float:
 
@@ -52,10 +76,13 @@ def simulate_energy_production(date: datetime.datetime) -> float:
 topic = 'energy_produced'
 
 kafka_config = {
-    'bootstrap_servers': ['kafka:9092']
+    'bootstrap_servers': ['warpstream:9092'],
+    'request_timeout_ms': 30000,
+    'connections_max_idle_ms': 60000,
+    'retries': 5
 }
-# Kafka producer
-producer = KafkaProducer(**kafka_config)
+# Kafka producer with retry logic
+producer = create_producer_with_retry(kafka_config)
 
 if __name__ == "__main__":
 

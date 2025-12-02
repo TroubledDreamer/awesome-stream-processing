@@ -1,56 +1,52 @@
 version: "3"
 services:
-
-  # zookeeper
-  zookeeper:
-    platform: linux/amd64
-    image: wurstmeister/zookeeper
-    container_name: zookeeper
-    ports:
-      - "2181:2181"
-    networks:
-      - kafka-net
-
-  # kafka
-  kafka:
+  # warpstream (kafka in kraft mode - no zookeeper)
+  warpstream:
     image: confluentinc/cp-kafka:7.4.0
-    container_name: kafka
-    depends_on:
-      - zookeeper
+    container_name: warpstream
     ports:
       - "9092:9092"
-      - "29092:29092"
     environment:
-      KAFKA_BROKER_ID: 1
-      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@warpstream:29093
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:29093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://warpstream:9092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
-      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+      KAFKA_LOG_DIRS: /tmp/kraft-combined-logs
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
     networks:
-     - kafka-net
+      - kafka-net
     healthcheck:
-      test: ["CMD-SHELL", "kafka-topics --bootstrap-server localhost:9092 --list"]
-      interval: 10s
-      timeout: 10s
+      test:
+        [
+          "CMD-SHELL",
+          "kafka-topics --bootstrap-server localhost:9092 --list || exit 1",
+        ]
+      interval: 15s
+      timeout: 30s
       retries: 5
-
+      start_period: 60s
 
   # risingwave
   risingwave:
     image: risingwavelabs/risingwave:v1.10.0
     ports:
-    - 5690:5690
-    - 5691:5691
-    - 4566:4566
+      - 5690:5690
+      - 5691:5691
+      - 4566:4566
     entrypoint:
-    - /risingwave/bin/risingwave
-    - playground
+      - /risingwave/bin/risingwave
+      - playground
     networks:
-     - kafka-net
+      - kafka-net
+    restart: always
     healthcheck:
-      test: ["CMD-SHELL", "timeout 1 bash -c '</dev/tcp/localhost/4566' || exit 1"]
+      test:
+        ["CMD-SHELL", "timeout 1 bash -c '</dev/tcp/localhost/4566' || exit 1"]
       interval: 15s
       timeout: 10s
       retries: 10
@@ -69,16 +65,28 @@ services:
       interval: 10s
       timeout: 10s
       retries: 5
-    command: [ "postgres", "-c", "wal_level=logical" ]
+    command: ["postgres", "-c", "wal_level=logical"]
     restart: always
     container_name: postgres
     networks:
-     - kafka-net
+      - kafka-net
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    networks:
+      - kafka-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   grafana:
     image: grafana/grafana
     ports:
-      - "3000:3000"  
+      - "3000:3000"
     environment:
       - GF_AUTH_ANONYMOUS_ENABLED=true
       - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
@@ -91,7 +99,7 @@ services:
 
   postgres_prepare:
     image: postgres
-    depends_on: 
+    depends_on:
       postgres:
         condition: service_healthy
     command:
@@ -99,12 +107,24 @@ services:
       - -c
       - "psql postgresql://myuser:123456@postgres:5432/mydb < postgres_prepare.sql"
     volumes:
-    - "./postgres_prepare.sql:/postgres_prepare.sql"      
+      - "./postgres_prepare.sql:/postgres_prepare.sql"
     container_name: postgres_prepare
     restart: on-failure
     networks:
-    - kafka-net
+      - kafka-net
 
+  # Create Kafka topics
+  kafka-init:
+    image: confluentinc/cp-kafka:7.4.0
+    depends_on:
+      warpstream:
+        condition: service_healthy
+    command: >
+      bash -c "kafka-topics --create --bootstrap-server warpstream:9092 --topic energy_consumed --partitions 3 --replication-factor 1 --if-not-exists &&
+               kafka-topics --create --bootstrap-server warpstream:9092 --topic energy_produced --partitions 3 --replication-factor 1 --if-not-exists &&
+               echo 'Topics created successfully'"
+    networks:
+      - kafka-net
 
   risingwave-init:
     image: postgres:13
@@ -113,11 +133,11 @@ services:
         condition: service_healthy
       postgres_prepare:
         condition: service_completed_successfully
-      kafka:
-        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
     command: |
       sh -c "
-      sleep 30 &&
+      sleep 10 &&
       until pg_isready -h risingwave -p 4566 -U root; do
         echo 'Waiting for RisingWave to be ready...'
         sleep 5
@@ -138,13 +158,13 @@ services:
       context: .
       dockerfile: data-producers/Dockerfile
     depends_on:
-      kafka:
-        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
     environment:
-      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      KAFKA_BOOTSTRAP_SERVERS: warpstream:9092
     restart: always
     networks:
-     - kafka-net
+      - kafka-net
 
 networks:
   kafka-net:

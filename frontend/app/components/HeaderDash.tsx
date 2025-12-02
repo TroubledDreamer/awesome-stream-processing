@@ -1,21 +1,102 @@
-const stats = [
-  { title: "Real-time Consumption (W)", value: 1204, delta: 1.5, tone: "text-[#0b6b6b]" },
-  { title: "Real-time Production (W)", value: 850, delta: -0.8, tone: "text-red-400" },
-  { title: "Net Grid Flow (W)", value: -354, delta: 2.1, tone: "text-[#0b6b6b]" },
-  { title: "Today's Consumption (kWh)", value: 15.2, delta: -5.0, tone: "text-red-400" },
-];
+"use client";
+import { useEffect, useState } from "react";
 
-function adjustStat(base: number, offset: number) {
-  return Math.max(0, Math.round((base + offset) * 10) / 10);
-}
+type Stat = {
+  title: string;
+  value: number;
+  delta: number;
+  tone: string;
+};
 
 type HeaderDashProps = {
   selectedHousehold?: string | null;
   contextLabel?: string;
 };
 
-export default function HeaderDash({ selectedHousehold, contextLabel }: HeaderDashProps) {
-  const offset = selectedHousehold ? parseInt(selectedHousehold.replace(/\D/g, ""), 10) % 40 : 0;
+export default function HeaderDash({
+  selectedHousehold,
+  contextLabel,
+}: HeaderDashProps) {
+  const [stats, setStats] = useState<Stat[]>([
+    {
+      title: "Real-time Consumption (kWh)",
+      value: 0,
+      delta: 0,
+      tone: "text-[#0b6b6b]",
+    },
+    {
+      title: "Real-time Production (kWh)",
+      value: 0,
+      delta: 0,
+      tone: "text-[#0b6b6b]",
+    },
+    {
+      title: "Net Grid Flow (kWh)",
+      value: 0,
+      delta: 0,
+      tone: "text-[#0b6b6b]",
+    },
+    { title: "Total Energy (kWh)", value: 0, delta: 0, tone: "text-[#0b6b6b]" },
+  ]);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const res = await fetch("/api/energy");
+        const data = await res.json();
+
+        if (data.totals && data.totals.length > 0) {
+          // Sum across all meters for grid-wide stats
+          const totalConsumption = data.totals.reduce(
+            (sum: number, row: any) => sum + (row.total_consumed || 0),
+            0
+          );
+          const totalProduction = data.totals.reduce(
+            (sum: number, row: any) => sum + (row.total_produced || 0),
+            0
+          );
+          const totalEnergy = data.totals.reduce(
+            (sum: number, row: any) => sum + (row.total_energy || 0),
+            0
+          );
+          const netFlow = totalProduction - totalConsumption;
+
+          setStats([
+            {
+              title: "Total Consumption (kWh)",
+              value: Math.round(totalConsumption * 10) / 10,
+              delta: 1.5,
+              tone: "text-[#0b6b6b]",
+            },
+            {
+              title: "Total Production (kWh)",
+              value: Math.round(totalProduction * 10) / 10,
+              delta: -0.8,
+              tone: "text-[#0b6b6b]",
+            },
+            {
+              title: "Net Grid Flow (kWh)",
+              value: Math.round(netFlow * 10) / 10,
+              delta: 2.1,
+              tone: netFlow >= 0 ? "text-[#0b6b6b]" : "text-red-400",
+            },
+            {
+              title: "Grid Deficit (kWh)",
+              value: Math.round(Math.abs(totalEnergy) * 10) / 10,
+              delta: -5.0,
+              tone: "text-red-400",
+            },
+          ]);
+        }
+      } catch (error) {
+        console.error("Failed to fetch header stats:", error);
+      }
+    };
+
+    fetchData();
+    const interval = setInterval(fetchData, 5000);
+    return () => clearInterval(interval);
+  }, []);
 
   return (
     <section className="mx-auto w-full max-w-screen-2xl px-6 pb-6 pt-0">
@@ -27,16 +108,18 @@ export default function HeaderDash({ selectedHousehold, contextLabel }: HeaderDa
           >
             <p className="text-sm font-medium">{stat.title}</p>
             <p className="text-3xl font-bold tracking-tight">
-              {adjustStat(stat.value, offset).toLocaleString()}
+              {stat.value.toLocaleString()}
             </p>
             <p className={`text-sm font-medium ${stat.tone}`}>
-              {stat.delta + offset * 0.01 > 0 ? "+" : ""}
-              {(stat.delta + offset * 0.01).toFixed(1)}%
+              {stat.delta > 0 ? "+" : ""}
+              {stat.delta.toFixed(1)}%
             </p>
           </div>
         ))}
       </div>
-      <div className="mt-2 text-xs font-medium text-[#4a5568]">{contextLabel || "All households"}</div>
+      <div className="mt-2 text-xs font-medium text-[#4a5568]">
+        {contextLabel || "All households"} • Live from RisingWave via Redis
+      </div>
     </section>
   );
 }
