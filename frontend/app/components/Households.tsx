@@ -21,9 +21,9 @@ const households: Household[] = [
 function statusStyles(status: Household["status"]) {
   switch (status) {
     case "Paid":
-      return "bg-emerald-100 text-emerald-700 ring-1 ring-emerald-200";
+      return "bg-[#E1FFBB] text-[#001A6E] ring-1 ring-[#074799]/40";
     case "Pending":
-      return "bg-amber-100 text-amber-700 ring-1 ring-amber-200";
+      return "bg-[#dde8ff] text-[#074799] ring-1 ring-[#074799]/30";
     case "Overdue":
       return "bg-red-100 text-red-700 ring-1 ring-red-200";
     default:
@@ -36,7 +36,7 @@ export default function Households() {
     <section className="mx-auto w-full max-w-screen-2xl px-6 pb-12">
       <div className="flex flex-wrap items-start justify-between gap-4 pb-4">
         <div className="flex min-w-72 flex-col gap-1">
-          <p className="text-2xl font-semibold text-zinc-900">Monthly Billing Report</p>
+          <p className="text-2xl font-semibold text-[#0b1b33]">Monthly Billing Report</p>
           <p className="text-sm text-zinc-500">
             Review and compare monthly energy data for all households.
           </p>
@@ -74,52 +74,52 @@ export default function Households() {
         </label>
       </div>
 
-      <div className="overflow-x-auto rounded-xl border border-zinc-200 bg-white">
-        <table className="w-full text-left text-sm">
-          <thead className="border-b border-zinc-200 bg-zinc-50 text-xs uppercase text-zinc-600">
-            <tr>
-              <th className="px-6 py-3 font-semibold">Household ID</th>
-              <th className="px-6 py-3 font-semibold">Address</th>
-              <th className="px-6 py-3 font-semibold">Consumption (kWh)</th>
-              <th className="px-6 py-3 font-semibold">Production (kWh)</th>
+        <div className="overflow-x-auto rounded-xl border border-[#0b6b6b] bg-white">
+          <table className="w-full text-left text-sm">
+            <thead className="border-b border-[#0b6b6b] bg-[#0b1b33] text-xs uppercase text-white">
+              <tr>
+                <th className="px-6 py-3 font-semibold">Household ID</th>
+                <th className="px-6 py-3 font-semibold">Address</th>
+                <th className="px-6 py-3 font-semibold">Consumption (kWh)</th>
+                <th className="px-6 py-3 font-semibold">Production (kWh)</th>
               <th className="px-6 py-3 font-semibold">Net (kWh)</th>
               <th className="px-6 py-3 font-semibold">Total Bill ($)</th>
               <th className="px-6 py-3 font-semibold">Payment Status</th>
               <th className="px-6 py-3 font-semibold">Actions</th>
             </tr>
           </thead>
-          <tbody className="text-zinc-900">
-            {households.map((home) => {
-              const net = home.production - home.consumption;
-              const netClass = net >= 0 ? "text-emerald-600" : "text-red-600";
-              return (
-                <tr key={home.id} className="border-b border-zinc-100 last:border-0">
-                  <td className="px-6 py-3 font-medium">{home.id}</td>
-                  <td className="px-6 py-3 text-sm text-zinc-600">{home.address}</td>
-                  <td className="px-6 py-3">{home.consumption}</td>
-                  <td className="px-6 py-3">{home.production}</td>
-                  <td className={`px-6 py-3 font-medium ${netClass}`}>
-                    {net > 0 ? "+" : ""}
+            <tbody className="text-zinc-900">
+              {households.map((home) => {
+                const net = home.production - home.consumption;
+                const netClass = net >= 0 ? "text-[#009990]" : "text-red-600";
+                return (
+                  <tr key={home.id} className="border-b border-[#e2e8f0] last:border-0">
+                    <td className="px-6 py-3 font-medium text-[#0b1b33]">{home.id}</td>
+                    <td className="px-6 py-3 text-sm text-zinc-600">{home.address}</td>
+                    <td className="px-6 py-3">{home.consumption}</td>
+                    <td className="px-6 py-3">{home.production}</td>
+                    <td className={`px-6 py-3 font-medium ${netClass}`}>
+                      {net > 0 ? "+" : ""}
                     {net}
                   </td>
                   <td className="px-6 py-3">${home.bill.toFixed(2)}</td>
-                  <td className="px-6 py-3">
-                    <span
-                      className={`inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-xs font-medium ${statusStyles(
-                        home.status,
-                      )}`}
-                    >
-                      <span className="size-1.5 rounded-full bg-current" />
-                      {home.status}
-                    </span>
-                  </td>
-                  <td className="px-6 py-3">
-                    <button className="text-emerald-600 font-semibold hover:underline">View</button>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
+                    <td className="px-6 py-3">
+                      <span
+                        className={`inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-xs font-medium ${statusStyles(
+                          home.status,
+                        )}`}
+                      >
+                        <span className="size-1.5 rounded-full bg-current" />
+                        {home.status}
+                      </span>
+                    </td>
+                    <td className="px-6 py-3">
+                      <button className="text-[#0b6b6b] font-semibold hover:underline">View</button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
         </table>
         <div className="flex items-center justify-between px-6 py-4 text-sm text-zinc-600">
           <span>
@@ -127,12 +127,12 @@ export default function Households() {
           </span>
           <div className="flex items-center gap-2">
             <button
-              className="flex items-center justify-center rounded-lg p-2 text-zinc-500 hover:bg-zinc-100"
+              className="flex items-center justify-center rounded-lg p-2 text-[#074799] hover:bg-[#e6f0ff] disabled:opacity-50"
               disabled
             >
               ‹
             </button>
-            <button className="flex items-center justify-center rounded-lg p-2 text-zinc-500 hover:bg-zinc-100">
+            <button className="flex items-center justify-center rounded-lg p-2 text-[#074799] hover:bg-[#e6f0ff]">
               ›
             </button>
           </div>

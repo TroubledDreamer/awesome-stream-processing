@@ -2,7 +2,7 @@ export default function Visuals() {
   return (
     <section className="mx-auto w-full max-w-screen-2xl px-6 pb-8">
       <div className="flex flex-col gap-4">
-        <div className="flex flex-col gap-3 rounded-2xl border border-[#3b5447] bg-[#11221a] px-5 py-5 text-white shadow-sm">
+        <div className="flex flex-col gap-3 rounded-2xl border border-[#0b6b6b] bg-gradient-to-br from-[#0b1b33] via-[#0f304a] to-[#0b5155] px-5 py-5 text-white shadow-sm">
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <h2 className="text-xl font-bold">Energy Usage Over Time</h2>
             <div className="flex gap-2 overflow-x-auto pb-1">
@@ -11,8 +11,8 @@ export default function Visuals() {
                   key={label}
                   className={`flex h-9 items-center justify-center gap-2 rounded-lg px-4 text-sm font-medium transition ${
                     idx === 0
-                      ? "bg-emerald-500 text-black"
-                      : "bg-[#1a3327] text-white hover:bg-[#234132]"
+                      ? "bg-[#0b6b6b] text-white"
+                      : "bg-[#0f304a] text-white hover:bg-[#0b6b6b]"
                   }`}
                 >
                   {label}
@@ -20,11 +20,11 @@ export default function Visuals() {
               ))}
             </div>
           </div>
-          <div className="flex h-80 w-full items-center justify-center rounded-xl border border-[#3b5447] bg-[#1a2c23]/60 text-center text-[#9db9ab]">
+          <div className="flex h-80 w-full items-center justify-center rounded-xl border border-[#0b6b6b] bg-[#0b1b33]/70 text-center text-[#dce7f5]">
             <div>
               <div className="text-4xl">📈</div>
               <p className="mt-2 text-lg font-semibold">Interactive Time-Series Chart Area</p>
-              <p className="text-sm">Data visualization would render here.</p>
+              <p className="text-sm text-[#dce7f5]">Data visualization would render here.</p>
             </div>
           </div>
         </div>

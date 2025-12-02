@@ -2,6 +2,7 @@ import Header from "./components/Header";
 import HeaderDash from "./components/HeaderDash";
 import Households from "./components/Households";
 import Visuals from "./components/Visuals";
+import ScrollToTop from "./components/ScrollToTop";
 
 
 export default function Home() {
@@ -11,6 +12,7 @@ export default function Home() {
       <HeaderDash />
       <Visuals />
       <Households />
+      <ScrollToTop />
     </div>
   );
 }
