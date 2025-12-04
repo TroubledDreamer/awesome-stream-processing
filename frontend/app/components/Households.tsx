@@ -4,10 +4,16 @@ import { useEffect, useState } from "react";
 type Household = {
   id: string;
   address: string;
+  city: string;
   consumption: number;
   production: number;
   bill: number;
   status: "Paid" | "Pending" | "Overdue";
+  plan: "Tiered" | "TOU" | "Unknown";
+  monthLabel: string;
+  monthKey: string;
+  monthDate: Date | null;
+  year: number | null;
 };
 
 const mockAddresses = [
@@ -48,6 +54,13 @@ type HouseholdsProps = {
 export default function Households({ selectedId, onSelect }: HouseholdsProps) {
   const [households, setHouseholds] = useState<Household[]>([]);
   const [loading, setLoading] = useState(true);
+  const [activeMonth, setActiveMonth] = useState<string>("All");
+  const [activeYear, setActiveYear] = useState<string>("All");
+  const [activePlan, setActivePlan] = useState<"All" | "Tiered" | "TOU">(
+    "All"
+  );
+  const [viewing, setViewing] = useState<Household | null>(null);
+  const [isOnline, setIsOnline] = useState<boolean>(true);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -60,14 +73,20 @@ export default function Households({ selectedId, onSelect }: HouseholdsProps) {
 
         const energyData = await energyRes.json();
         const billsData = await billsRes.json();
+        const customersData = await customersRes.json();
 
-        // Combine tiered and TOU bills - bills API already has address and current_energy_consumed
+        const customerAddressMap = new Map<string, string>();
+        (customersData || []).forEach((row: any) => {
+          if (row.meter_id !== undefined) {
+            customerAddressMap.set(String(row.meter_id), String(row.address || ""));
+          }
+        });
+
         const allBills = [
           ...(billsData.tiered || []),
           ...(billsData.tou || []),
         ];
 
-        // Get energy totals for meters that might not have bills yet
         const energyTotalsMap = new Map<
           string,
           { consumption: number; production: number }
@@ -79,6 +98,15 @@ export default function Households({ selectedId, onSelect }: HouseholdsProps) {
           });
         });
 
+        const parseCity = (address: string) => {
+          const parts = address
+            .split(",")
+            .map((p: string) => p.trim())
+            .filter(Boolean);
+          const city = parts.length >= 2 ? parts[1] : parts[0] || "Unknown";
+          return city.trim();
+        };
+
         const householdsData: Household[] = allBills.map(
           (row: any, idx: number) => {
             const meterId = String(row.meter_id);
@@ -86,11 +114,33 @@ export default function Households({ selectedId, onSelect }: HouseholdsProps) {
               consumption: 0,
               production: 0,
             };
+            const month = row.month ? new Date(row.month) : null;
+            const monthKey = month
+              ? `${month.getFullYear()}-${String(month.getMonth() + 1).padStart(
+                  2,
+                  "0"
+                )}`
+              : "unknown";
+            const monthLabel = month
+              ? month.toLocaleString("default", { month: "short", year: "numeric" })
+              : "All time";
+            const plan: Household["plan"] =
+              row.current_bill !== undefined
+                ? "Tiered"
+                : row.monthly_cost !== undefined
+                ? "TOU"
+                : "Unknown";
+
+            const address =
+              String(row.address ?? "").trim() ||
+              customerAddressMap.get(meterId) ||
+              "Unknown Address";
+            const city = parseCity(address);
 
             return {
               id: meterId,
-              address: row.address || "Unknown Address",
-              // Use current_energy_consumed from bills if available, otherwise use totals
+              address,
+              city,
               consumption:
                 Math.round(
                   (row.current_energy_consumed || energyTotals.consumption) * 10
@@ -98,13 +148,20 @@ export default function Households({ selectedId, onSelect }: HouseholdsProps) {
               production: Math.round(energyTotals.production * 10) / 10,
               bill: row.current_bill || row.monthly_cost || 0,
               status: mockStatuses[idx % mockStatuses.length],
+              plan,
+              monthLabel,
+              monthKey,
+              monthDate: month,
+              year: month ? month.getFullYear() : null,
             };
           }
         );
 
         setHouseholds(householdsData);
+        setIsOnline(true);
       } catch (error) {
         console.error("Failed to fetch household data:", error);
+        setIsOnline(false);
       } finally {
         setLoading(false);
       }
@@ -114,59 +171,179 @@ export default function Households({ selectedId, onSelect }: HouseholdsProps) {
     const interval = setInterval(fetchData, 5000);
     return () => clearInterval(interval);
   }, []);
+
   if (loading) {
     return (
       <section className="mx-auto w-full max-w-screen-2xl px-6 pb-12">
-        <div className="text-center py-8 text-zinc-500">
+        <div className="py-8 text-center text-zinc-500">
           Loading live data from RisingWave...
         </div>
       </section>
     );
   }
 
+  const filteredHouseholds = households.filter((home) => {
+    return true;
+  });
+
+
+  const buildFilterLabel = () => {
+    const parts = [
+      activePlan === "All" ? null : `Plan: ${activePlan}`,
+      activeYear === "All" ? null : `Year: ${activeYear}`,
+      activeMonth === "All" ? null : `Month: ${activeMonth}`,
+    ].filter(Boolean);
+    return parts.length ? parts.join(" | ") : "No filters applied";
+  };
+
+  const formatTimestamp = () =>
+    new Intl.DateTimeFormat(undefined, {
+      dateStyle: "medium",
+      timeStyle: "short",
+    }).format(new Date());
+
+  const openPrintPreview = (title: string, content: string) => {
+    if (typeof window === "undefined") return;
+    const win = window.open("", "_blank", "width=900,height=1000");
+    if (!win) {
+      alert("Please allow popups to preview the PDF.");
+      return;
+    }
+    win.document.write(`
+      <!doctype html>
+      <html>
+        <head>
+          <title>${title}</title>
+          <style>
+            body { font-family: Arial, sans-serif; color: #0b1b33; padding: 24px; }
+            h1 { margin-bottom: 4px; }
+            .meta { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+            .filters { color: #4a5568; font-size: 12px; margin: 0; }
+            .timestamp { color: #4a5568; font-size: 12px; }
+            table { width: 100%; border-collapse: collapse; font-size: 12px; }
+            th, td { border: 1px solid #e2e8f0; padding: 8px; text-align: left; }
+            th { background: #0b1b33; color: white; }
+            tr:nth-child(even) { background: #f8fafc; }
+          </style>
+        </head>
+        <body>
+          ${content}
+        </body>
+      </html>
+    `);
+    win.document.close();
+    win.focus();
+    win.print();
+  };
+
+  const exportReportPreview = () => {
+    const rows = filteredHouseholds
+      .map(
+        (h) => `
+          <tr>
+            <td>${h.id}</td>
+            <td>${h.address}</td>
+            <td>${h.consumption.toFixed(1)} kWh</td>
+            <td>${h.production.toFixed(1)} kWh</td>
+            <td>${(h.production - h.consumption >= 0 ? "+" : "") + (h.production - h.consumption).toFixed(1)} kWh</td>
+            <td>$${h.bill.toFixed(2)}</td>
+            <td>${h.plan}</td>
+          </tr>
+        `
+      )
+      .join("");
+
+    const generatedAt = formatTimestamp();
+    const content = `
+      <h1>Live Billing Report</h1>
+      <div class="meta">
+        <div class="filters">${buildFilterLabel()}</div>
+        <div class="timestamp">Generated ${generatedAt}</div>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Household ID</th>
+            <th>Address</th>
+            <th>Consumption</th>
+            <th>Production</th>
+            <th>Net</th>
+            <th>Bill</th>
+            <th>Plan</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows || `<tr><td colspan="7">No data with current filters.</td></tr>`}
+        </tbody>
+      </table>
+    `;
+    openPrintPreview("Billing Report", content);
+  };
+
+  const exportSingleHousehold = (home: Household) => {
+    const net = home.production - home.consumption;
+    const generatedAt = formatTimestamp();
+    const content = `
+      <h1>Household Report</h1>
+      <div class="meta">
+        <div class="filters">${home.id} - ${home.address}</div>
+        <div class="timestamp">Generated ${generatedAt}</div>
+      </div>
+      <table>
+        <tbody>
+          <tr><th>Plan</th><td>${home.plan}</td></tr>
+          <tr><th>Period</th><td>${home.monthLabel}</td></tr>
+          <tr><th>Consumption</th><td>${home.consumption.toFixed(1)} kWh</td></tr>
+          <tr><th>Production</th><td>${home.production.toFixed(1)} kWh</td></tr>
+          <tr><th>Net</th><td>${net >= 0 ? "+" : ""}${net.toFixed(1)} kWh</td></tr>
+          <tr><th>Bill</th><td>$${home.bill.toFixed(2)}</td></tr>
+        </tbody>
+      </table>
+    `;
+    openPrintPreview("Household Report", content);
+  };
+
+  const monthOptions = Array.from(
+    new Map(
+      households
+        .filter((h) => h.monthDate)
+        .map((h) => [h.monthKey, { key: h.monthKey, label: h.monthLabel, date: h.monthDate as Date }])
+    ).values()
+  ).sort((a, b) => b.date.getTime() - a.date.getTime());
+
+  const yearOptions = Array.from(
+    new Set(
+      households
+        .map((h) => (h.year !== null ? String(h.year) : null))
+        .filter(Boolean) as string[]
+    )
+  ).sort((a, b) => Number(b) - Number(a));
+
   return (
     <section className="mx-auto w-full max-w-screen-2xl px-6 pb-12">
       <div className="flex flex-wrap items-start justify-between gap-4 pb-4">
         <div className="flex min-w-72 flex-col gap-1">
           <p className="text-2xl font-semibold text-[#0b1b33]">
-            Monthly Billing Report
+            Live Billing Report
           </p>
           <p className="text-sm text-zinc-500">
             Review and compare monthly energy data for all households.
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <button className="flex items-center justify-center gap-2 rounded-lg bg-zinc-200 px-4 py-2 text-sm font-medium text-black">
-            <span>Oct 2023</span>
-          </button>
-          <button className="flex items-center justify-center gap-2 rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-white">
-            <span>Export Report</span>
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <button
+            className={`flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold text-white ${
+              isOnline ? "bg-emerald-500" : "bg-red-500"
+            }`}
+            onClick={exportReportPreview}
+            disabled={!isOnline}
+          >
+            <span>{isOnline ? "Export Report" : "Offline"}</span>
           </button>
         </div>
       </div>
 
-      <div className="flex flex-col gap-2 pb-4">
-        <label className="flex w-full max-w-xl items-center gap-3 rounded-lg border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-600 shadow-sm">
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            fill="none"
-            viewBox="0 0 24 24"
-            strokeWidth="1.5"
-            stroke="currentColor"
-            className="h-5 w-5 text-zinc-400"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="m21 21-4.35-4.35m0 0a7.5 7.5 0 1 0-10.61-10.6 7.5 7.5 0 0 0 10.6 10.6Z"
-            />
-          </svg>
-          <input
-            className="w-full bg-transparent text-sm text-zinc-800 placeholder:text-zinc-400 focus:outline-none"
-            placeholder="Search by Household ID or address"
-          />
-        </label>
-      </div>
+      {/* Search bar removed per request */}
 
       <div className="overflow-x-auto rounded-xl border border-[#0b6b6b] bg-white">
         <table className="w-full text-left text-sm">
@@ -178,60 +355,72 @@ export default function Households({ selectedId, onSelect }: HouseholdsProps) {
               <th className="px-6 py-3 font-semibold">Production (kWh)</th>
               <th className="px-6 py-3 font-semibold">Net (kWh)</th>
               <th className="px-6 py-3 font-semibold">Total Bill ($)</th>
-              <th className="px-6 py-3 font-semibold">Payment Status</th>
               <th className="px-6 py-3 font-semibold">Actions</th>
             </tr>
           </thead>
           <tbody className="text-zinc-900">
-            {households.map((home) => {
-              const net = home.production - home.consumption;
-              const netClass = net >= 0 ? "text-[#009990]" : "text-red-600";
-              return (
-                <tr
-                  key={home.id}
-                  className={`border-b border-[#e2e8f0] last:border-0 transition hover:bg-[#f7fbff] ${
-                    selectedId === home.id ? "bg-[#eef7ff]" : ""
-                  }`}
-                  onClick={() => onSelect?.(home.id)}
-                  role={onSelect ? "button" : undefined}
-                  tabIndex={onSelect ? 0 : -1}
+            {filteredHouseholds.length ? (
+              filteredHouseholds.map((home) => {
+                const net = home.production - home.consumption;
+                const netClass = net >= 0 ? "text-[#009990]" : "text-red-600";
+                return (
+                  <tr
+                    key={home.id}
+                    className={`border-b border-[#e2e8f0] last:border-0 transition hover:bg-[#f7fbff] ${
+                      selectedId === home.id ? "bg-[#eef7ff]" : ""
+                    }`}
+                    onClick={() => onSelect?.(home.id)}
+                    role={onSelect ? "button" : undefined}
+                    tabIndex={onSelect ? 0 : -1}
+                  >
+                    <td className="px-6 py-3 font-medium text-[#0b1b33]">
+                      {home.id}
+                    </td>
+                    <td className="px-6 py-3 text-sm text-zinc-600">
+                      {home.address}
+                    </td>
+                    <td className="px-6 py-3">
+                      {home.consumption.toFixed(1)}
+                    </td>
+                    <td className="px-6 py-3">
+                      {home.production.toFixed(1)}
+                    </td>
+                    <td className={`px-6 py-3 font-medium ${netClass}`}>
+                      {net > 0 ? "+" : ""}
+                      {net.toFixed(1)}
+                    </td>
+                    <td className="px-6 py-3">${home.bill.toFixed(2)}</td>
+
+                    <td className="px-6 py-3">
+                      <button
+                        className="font-semibold text-[#0b6b6b] hover:underline"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setViewing(home);
+                        }}
+                      >
+                        View
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })
+            ) : (
+              <tr>
+                <td
+                  className="px-6 py-8 text-center text-sm text-zinc-500"
+                  colSpan={7}
                 >
-                  <td className="px-6 py-3 font-medium text-[#0b1b33]">
-                    {home.id}
-                  </td>
-                  <td className="px-6 py-3 text-sm text-zinc-600">
-                    {home.address}
-                  </td>
-                  <td className="px-6 py-3">{home.consumption.toFixed(1)}</td>
-                  <td className="px-6 py-3">{home.production.toFixed(1)}</td>
-                  <td className={`px-6 py-3 font-medium ${netClass}`}>
-                    {net > 0 ? "+" : ""}
-                    {net.toFixed(1)}
-                  </td>
-                  <td className="px-6 py-3">${home.bill.toFixed(2)}</td>
-                  <td className="px-6 py-3">
-                    <span
-                      className={`inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-xs font-medium ${statusStyles(
-                        home.status
-                      )}`}
-                    >
-                      <span className="size-1.5 rounded-full bg-current" />
-                      {home.status}
-                    </span>
-                  </td>
-                  <td className="px-6 py-3">
-                    <button className="text-[#0b6b6b] font-semibold hover:underline">
-                      View
-                    </button>
-                  </td>
-                </tr>
-              );
-            })}
+                  No households match the current filters.
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
+
         <div className="flex items-center justify-between px-6 py-4 text-sm text-zinc-600">
           <span>
-            Showing 1 to {households.length} of {households.length} households
+            Showing {filteredHouseholds.length} of {households.length} households
           </span>
           <div className="flex items-center gap-2">
             <button
@@ -246,6 +435,88 @@ export default function Households({ selectedId, onSelect }: HouseholdsProps) {
           </div>
         </div>
       </div>
+
+      {viewing ? (
+        <div className="fixed inset-0 z-30 flex items-center justify-center bg-black/40 px-4 py-8 backdrop-blur-sm">
+          <div className="w-full max-w-2xl rounded-2xl bg-white shadow-2xl">
+            <div className="flex items-center justify-between border-b border-zinc-200 px-6 py-4">
+              <div>
+                <p className="text-xs uppercase tracking-wide text-zinc-500">
+                  Household
+                </p>
+                <p className="text-xl font-semibold text-[#0b1b33]">
+                  {viewing.id} — {viewing.address}
+                </p>
+              </div>
+              <button
+                className="rounded-full p-2 text-zinc-500 hover:bg-zinc-100"
+                onClick={() => setViewing(null)}
+                aria-label="Close details"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 px-6 py-6 sm:grid-cols-2">
+              <div className="rounded-lg border border-zinc-200 bg-[#f7fbff] px-4 py-3">
+                <p className="text-xs uppercase text-zinc-500">Plan</p>
+                <p className="text-lg font-semibold text-[#0b1b33]">
+                  {viewing.plan}
+                </p>
+                <p className="text-xs text-zinc-500">
+                  {viewing.monthLabel} {viewing.year ?? ""}
+                </p>
+              </div>
+
+              <div className="rounded-lg border border-zinc-200 bg-white px-4 py-3">
+                <p className="text-xs uppercase text-zinc-500">
+                  Consumption / Production
+                </p>
+                <p className="text-lg font-semibold text-[#0b1b33]">
+                  {viewing.consumption.toFixed(1)} kWh /{" "}
+                  {viewing.production.toFixed(1)} kWh
+                </p>
+              </div>
+
+              <div className="rounded-lg border border-zinc-200 bg-white px-4 py-3">
+                <p className="text-xs uppercase text-zinc-500">Net</p>
+                <p
+                  className={`text-lg font-semibold ${
+                    viewing.production - viewing.consumption >= 0
+                      ? "text-[#009990]"
+                      : "text-red-600"
+                  }`}
+                >
+                  {viewing.production - viewing.consumption >= 0 ? "+" : ""}
+                  {(viewing.production - viewing.consumption).toFixed(1)} kWh
+                </p>
+              </div>
+
+              <div className="rounded-lg border border-zinc-200 bg-white px-4 py-3">
+                <p className="text-xs uppercase text-zinc-500">Bill</p>
+                <p className="text-lg font-semibold text-[#0b1b33]">
+                  ${viewing.bill.toFixed(2)}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-3 border-t border-zinc-200 px-6 py-4">
+              <button
+                className="rounded-lg px-4 py-2 text-sm font-medium text-zinc-600 hover:bg-zinc-100"
+                onClick={() => setViewing(null)}
+              >
+                Close
+              </button>
+              <button
+                className="rounded-lg bg-[#0b6b6b] px-4 py-2 text-sm font-semibold text-white hover:bg-[#0c777a]"
+                onClick={() => exportSingleHousehold(viewing)}
+              >
+                Export household
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }
