@@ -1,7 +1,7 @@
 import json
 import datetime
 import time
-from kafka import KafkaProducer
+from kafka import KafkaProducer  # pyright: ignore[reportMissingImports]
 import random
 
 # Check if broker is available

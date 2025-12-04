@@ -1,4 +1,4 @@
-version: "3"
+#version: "3"
 
 services:
 
@@ -84,6 +84,21 @@ services:
 
     - playground
 
+    healthcheck:
+      test: 
+        - "CMD-SHELL"
+        - |
+          if ! command -v ping &> /dev/null; then
+            echo "Installing ping..." &&
+            apt-get update && apt-get install -y iputils-ping
+          fi &&
+          echo "Pinging kafka..." &&
+          ping -c 5 kafka && 
+          echo "Health check passed"
+      interval: 10s
+      timeout: 30s
+      retries: 5
+      start_period: 30s
     networks:
 
      - kafka-net
@@ -148,6 +163,9 @@ services:
 
       - "./grafana_configs:/var/lib/grafana/dashboards"
 
+    depends_on:
+      risingwave_setup:
+        condition: service_completed_successfully
     networks:
 
       - kafka-net
@@ -200,6 +218,34 @@ services:
     networks:
 
      - kafka-net
+
+  # -------------------------------------------------------
+  # 6. RisingWave Setup (Final step)
+  # -------------------------------------------------------
+  risingwave_setup:
+    image: postgres:15
+    depends_on:
+      risingwave:
+        condition: service_healthy
+    environment:
+      PGPASSWORD: ""
+    command: |
+      /bin/sh -c "
+        echo 'Waiting for RisingWave to be ready...' &&
+        sleep 5 &&
+        echo 'Running source commands...' &&
+        psql -h risingwave -p 4566 -d dev -U root -f /source_commands.sql &&
+        echo 'Running materialized view commands...' &&
+        psql -h risingwave -p 4566 -d dev -U root -f /mv_commands.sql &&
+        echo 'RisingWave setup complete!'
+      "
+    volumes:
+      - "./source_commands.sql:/source_commands.sql"
+      - "./mv_commands.sql:/mv_commands.sql"
+    container_name: risingwave_setup
+    restart: on-failure
+    networks:
+      - kafka-net
 
 
 networks:

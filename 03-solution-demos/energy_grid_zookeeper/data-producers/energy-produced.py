@@ -1,6 +1,6 @@
 import json
 import datetime
-from kafka import KafkaProducer
+from kafka import KafkaProducer  # pyright: ignore[reportMissingImports]
 import time
 import random
 
