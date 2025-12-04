@@ -1,35 +1,41 @@
 version: "3"
 services:
   # warpstream (kafka in kraft mode - no zookeeper)
+  version: "3.9"
   warpstream:
-    image: confluentinc/cp-kafka:7.4.0
+    image: ghcr.io/warpstreamlabs/warpstream:latest
     container_name: warpstream
     ports:
-      - "9092:9092"
+      - "9092:9092"     # Kafka API
+      - "9091:9091"     # WarpStream UI
     environment:
-      KAFKA_NODE_ID: 1
-      KAFKA_PROCESS_ROLES: broker,controller
-      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@warpstream:29093
-      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:29093
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://warpstream:9092
-      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
-      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
-      KAFKA_LOG_DIRS: /tmp/kraft-combined-logs
-      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-      CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
+      WARPSTREAM_DEV_MODE: "true"
+      WARPSTREAM_LOG_LEVEL: "debug"
+    command: |
+      warpstream dev \
+        --listen-address=0.0.0.0:9092 \
+        --ui-address=0.0.0.0:9091
     networks:
       - kafka-net
-    healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "kafka-topics --bootstrap-server localhost:9092 --list || exit 1",
-        ]
-      interval: 15s
-      timeout: 30s
-      retries: 5
-      start_period: 60s
+    restart: unless-stopped
+
+  risingwave:
+    image: risingwavelabs/risingwave:v1.10.0
+    ports:
+      - 4566:4566
+      - 5690:5690
+      - 5691:5691
+    entrypoint:
+      - /risingwave/bin/risingwave
+      - playground
+    networks:
+      - kafka-net
+    restart: always
+
+networks:
+  kafka-net:
+    driver: bridge
+
 
   # risingwave
   risingwave:

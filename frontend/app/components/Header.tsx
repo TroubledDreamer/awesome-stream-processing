@@ -54,9 +54,12 @@ export default function Header() {
           </div>
           <div className="relative" ref={dropdownRef}>
             <button
-              className="flex min-h-11 items-center gap-2 rounded-lg border border-[#0b6b6b] bg-[#0b1b33]/80 px-4 py-2 text-sm font-medium text-white backdrop-blur transition hover:bg-[#0c777a]/80"
+              className="relative flex min-h-11 items-center gap-2 rounded-lg border border-[#0b6b6b] bg-[#0b1b33]/80 px-4 py-2 text-sm font-medium text-white backdrop-blur transition hover:bg-[#0c777a]/80"
               onClick={() => setOpen((prev) => !prev)}
             >
+              {items.length > 0 ? (
+                <span className="absolute -right-1 -top-1 h-3 w-3 rounded-full bg-red-500 ring-2 ring-[#0b1b33]" aria-label="New alerts" />
+              ) : null}
               <svg
                 xmlns="http://www.w3.org/2000/svg"
                 viewBox="0 0 24 24"

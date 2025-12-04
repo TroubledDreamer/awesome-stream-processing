@@ -24,7 +24,7 @@ const producer = new Kafka.Producer({
 });
 producer.connect();
 producer.on('ready', () => console.log('Kafka producer ready'));
-setInterval(() => producer.poll(), 50);
+setInterval(() => producer.poll(), 0.1);
 
 // ---------- Parse Queue (Worker Threads) ----------
 const NUM_WORKERS = 16;

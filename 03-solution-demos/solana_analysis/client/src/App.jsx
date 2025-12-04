@@ -59,7 +59,7 @@ export default function App() {
         }
 
         fetchData();
-        const interval = setInterval(fetchData, 1000);
+        const interval = setInterval(fetchData, .1);
         return () => clearInterval(interval);
     }, []);
 
