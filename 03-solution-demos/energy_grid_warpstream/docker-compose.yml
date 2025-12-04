@@ -1,180 +1,204 @@
-version: "3.8"
+#version: "3"
 
 services:
-  # -------------------------------------------------------
-  # MinIO (local S3-compatible backend for WarpStream)
-  # -------------------------------------------------------
-  minio:
-    image: minio/minio:latest
-    container_name: minio
-    ports:
-      - "9000:9000"
-      - "9001:9001"
-    environment:
-      MINIO_ROOT_USER: admin
-      MINIO_ROOT_PASSWORD: admin123
-    volumes:
-      - minio_data:/data
-    command: server /data --console-address ":9001"
-    healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9000/minio/health/ready || exit 1"]
-      interval: 5s
-      timeout: 3s
-      retries: 12
-      start_period: 5s
-    networks:
-      - warpstream-net
 
-  # -------------------------------------------------------
-  # MinIO Bucket Initialization
-  # -------------------------------------------------------
-  minio-init:
-    image: python:3.8-alpine
-    container_name: minio-init
-    depends_on:
-      minio:
-        condition: service_healthy
-    volumes:
-      - "./minio-init.py:/app/minio-init.py"
-    working_dir: /app
-    command: sh -c "pip install boto3 && python minio-init.py"
-    networks:
-      - warpstream-net
-    restart: on-failure
 
-  # -------------------------------------------------------
-  # RisingWave
-  # -------------------------------------------------------
-  risingwave:
+ warpstream:
+  image: public.ecr.aws/warpstream-labs/warpstream_agent:latest
+  container_name: warpstream-playground
+  command: ["playground"]
+  ports:
+    - "9092:9092"
+    - "29092:29092"
+  environment:
+    - WARPSTREAM_PLAYGROUND_MODE=true
+  networks:
+    - warpstream-net
+
+
+
+  # risingwave
+
+ risingwave:
+
     image: risingwavelabs/risingwave:v1.10.0
-    container_name: risingwave
+
     ports:
-      - 5690:5690
-      - 5691:5691
-      - 4566:4566
+
+    - 5690:5690
+
+    - 5691:5691
+
+    - 4566:4566
+
     entrypoint:
-      - /risingwave/bin/risingwave
-      - playground
-    networks:
-      - warpstream-net
 
-  # -------------------------------------------------------
-  # PostgreSQL
-  # -------------------------------------------------------
-  postgres:
-    image: postgres:15
-    environment:
-      POSTGRES_USER: myuser
-      POSTGRES_PASSWORD: 123456
-      POSTGRES_DB: mydb
-    ports:
-      - "5433:5432"
+    - /risingwave/bin/risingwave
+
+    - playground
+
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready --username=myuser --dbname=mydb"]
-      interval: 5s
-      timeout: 5s
+      test: 
+        - "CMD-SHELL"
+        - |
+          if ! command -v ping &> /dev/null; then
+            echo "Installing ping..." &&
+            apt-get update && apt-get install -y iputils-ping
+          fi &&
+          echo "Pinging warpstream-playground..." &&
+          ping -c 5 warpstream-playground && 
+          echo "Health check passed"
+      interval: 10s
+      timeout: 30s
       retries: 5
-    command: ["postgres", "-c", "wal_level=logical"]
-    restart: always
-    container_name: postgres
+      start_period: 30s
     networks:
+
+     - warpstream-net
+
+
+ postgres:
+
+    image: postgres
+
+    environment:
+
+      - POSTGRES_USER=myuser
+
+      - POSTGRES_PASSWORD=123456
+
+      - POSTGRES_DB=mydb
+
+    ports:
+
+      - "5433:5432"
+
+    healthcheck:
+
+      test: [ "CMD-SHELL", "pg_isready --username=myuser --dbname=mydb" ]
+
+      interval: 5s
+
+      timeout: 5s
+
+      retries: 5
+
+    command: [ "postgres", "-c", "wal_level=logical" ]
+
+    restart: always
+
+    container_name: postgres
+
+    networks:
+
+     - warpstream-net
+
+
+ grafana:
+
+    image: grafana/grafana
+
+    ports:
+
+      - "3000:3000"  
+
+    environment:
+
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+
+    volumes:
+
+      - "./grafana_configs/datasource.yaml:/etc/grafana/provisioning/datasources/datasource.yaml"
+
+      - "./grafana_configs/dashboard.yaml:/etc/grafana/provisioning/dashboards/main.yaml"
+
+      - "./grafana_configs:/var/lib/grafana/dashboards"
+
+    depends_on:
+      risingwave_setup:
+        condition: service_completed_successfully
+    networks:
+
       - warpstream-net
 
-  postgres_prepare:
-    image: postgres:15
-    depends_on:
+
+ postgres_prepare:
+    image: postgres
+    depends_on: 
       postgres:
         condition: service_healthy
     environment:
-      PGPASSWORD: 123456
-    command: |
-      /bin/sh -c "psql -h postgres -U myuser -d mydb -f /postgres_prepare.sql"
+      - PGPASSWORD=123456
+    command:
+      - /bin/sh
+      - -c
+      - |
+        psql -h postgres -U myuser -d mydb -f /postgres_prepare.sql
     volumes:
-      - "./postgres_prepare.sql:/postgres_prepare.sql"
+      - "./postgres_prepare.sql:/postgres_prepare.sql"      
     container_name: postgres_prepare
     restart: on-failure
     networks:
       - warpstream-net
 
-  # -------------------------------------------------------
-  # Grafana
-  # -------------------------------------------------------
-  grafana:
-    image: grafana/grafana
-    ports:
-      - "3000:3000"
-    environment:
-      GF_AUTH_ANONYMOUS_ENABLED: "true"
-      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
-    volumes:
-      - "./grafana_configs/datasource.yaml:/etc/grafana/provisioning/datasources/datasource.yaml"
-      - "./grafana_configs/dashboard.yaml:/etc/grafana/provisioning/dashboards/main.yaml"
-      - "./grafana_configs:/var/lib/grafana/dashboards"
-    networks:
-      - warpstream-net
 
-  # -------------------------------------------------------
-  # Data Producer
-  # -------------------------------------------------------
-  warpstream-producer:
+  # topic producer
+
+ topic_producer:
     build:
+
       context: .
+
       dockerfile: data-producers/Dockerfile
-    environment:
-      WARPSTREAM_BOOTSTRAP_SERVERS: "warpstream:9092"
+
     depends_on:
-      warpstream:
-        condition: service_healthy
+
+     - warpstream
+
+
+    environment:
+
+      KAFKA_BOOTSTRAP_SERVERS: warpstream-playground:9092
+
     restart: always
+
     networks:
       - warpstream-net
 
-  # -------------------------------------------------------
-  # WarpStream Agent (Persistent Storage Mode with MinIO)
-  # -------------------------------------------------------
-  warpstream:
-    image: public.ecr.aws/warpstream-labs/warpstream_agent:latest
-    container_name: warpstream
-    ports:
-      - "9092:9092"  # Kafka-compatible API
-      - "9094:9094"
-      - "8080:8080"  # Admin API (needed for healthcheck)
-    command: ["agent", "start", "--storage-mode", "persistent", "--enable-kafka-api", "--enable-admin-api", "--kafka-listen-addr", "0.0.0.0:9092", "--admin-listen-addr", "0.0.0.0:8080"]
-    environment:
-      WARPSTREAM_AGENT_KEY: "aks_8a2c1a1608343f55a77dd5a1b467dfd68e06910af922bf0d2a2b60ab8feb8740"
-      WARPSTREAM_DEFAULT_VIRTUAL_CLUSTER_ID: "vci_99b4c6f5_c130_43bb_a908_78c0a068a878"
-      WARPSTREAM_REGION: "us-east-1"
-      WARPSTREAM_BUCKET_URL: "s3://warpstream?endpoint=http://minio:9000&s3ForcePathStyle=true&region=us-east-1"
-      AWS_ACCESS_KEY_ID: "admin"
-      AWS_SECRET_ACCESS_KEY: "admin123"
-      AWS_REGION: "us-east-1"
-      WARPSTREAM_KAFKA_LISTEN_ADDR: "0.0.0.0:9092"
-      WARPSTREAM_ADMIN_LISTEN_ADDR: "0.0.0.0:8080"
+# RisingWave setup
+
+ risingwave_setup:
+    image: postgres:15
     depends_on:
-      minio-init:
-        condition: service_completed_successfully
-    healthcheck:
-      # IPv4-only: verify an IPv4 TCP listener exists on port 8080 inside the container
-      test: ["CMD-SHELL", "ss -4 -lnt | grep -q ':8080' || exit 1"]
-      interval: 5s
-      timeout: 3s
-      retries: 12
-      start_period: 5s
-    restart: unless-stopped
+      risingwave:
+        condition: service_healthy
+    environment:
+      PGPASSWORD: ""
+    command: |
+      /bin/sh -c "
+        echo 'Waiting for RisingWave to be ready...' &&
+        sleep 5 &&
+        echo 'Running source commands...' &&
+        psql -h risingwave -p 4566 -d dev -U root -f /source_commands.sql &&
+        echo 'Running materialized view commands...' &&
+        psql -h risingwave -p 4566 -d dev -U root -f /mv_commands.sql &&
+        echo 'RisingWave setup complete!'
+      "
+    volumes:
+      - "./source_commands.sql:/source_commands.sql"
+      - "./mv_commands.sql:/mv_commands.sql"
+    container_name: risingwave_setup
+    restart: on-failure
     networks:
       - warpstream-net
-    sysctls:
-      net.ipv6.bindv6only: 0
 
-# -------------------------------------------------------
-# Network
-# -------------------------------------------------------
+
 networks:
+
   warpstream-net:
+
     driver: bridge
 
-# -------------------------------------------------------
-# Volumes
-# -------------------------------------------------------
-volumes:
-  minio_data:
+    name: warpstream-net

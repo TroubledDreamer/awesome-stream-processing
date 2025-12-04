@@ -791,8 +791,7 @@
                     "value": 80
                   }
                 ]
-              },
-              "unit": "none"
+              }
             },
             "overrides": []
           },
@@ -1078,194 +1077,6 @@
             "w": 8,
             "x": 0,
             "y": 9
-          },
-          "id": 12,
-          "options": {
-            "inlineEditing": true,
-            "panZoom": false,
-            "root": {
-              "background": {
-                "color": {
-                  "fixed": "transparent"
-                }
-              },
-              "border": {
-                "color": {
-                  "fixed": "dark-green"
-                }
-              },
-              "constraint": {
-                "horizontal": "left",
-                "vertical": "top"
-              },
-              "elements": [
-                {
-                  "background": {
-                    "color": {
-                      "field": "day",
-                      "fixed": "#D9D9D9"
-                    }
-                  },
-                  "border": {
-                    "color": {
-                      "fixed": "dark-green"
-                    }
-                  },
-                  "config": {
-                    "align": "center",
-                    "color": {
-                      "fixed": "#000000"
-                    },
-                    "size": 20,
-                    "text": {
-                      "field": "day",
-                      "fixed": "",
-                      "mode": "field"
-                    },
-                    "valign": "middle"
-                  },
-                  "constraint": {
-                    "horizontal": "left",
-                    "vertical": "top"
-                  },
-                  "name": "Element 1",
-                  "placement": {
-                    "height": 76,
-                    "left": 32,
-                    "top": 8,
-                    "width": 192
-                  },
-                  "type": "metric-value"
-                },
-                {
-                  "background": {
-                    "color": {
-                      "field": "total_energy",
-                      "fixed": "#D9D9D9"
-                    }
-                  },
-                  "border": {
-                    "color": {
-                      "fixed": "dark-green"
-                    }
-                  },
-                  "config": {
-                    "align": "center",
-                    "color": {
-                      "fixed": "#000000"
-                    },
-                    "size": 20,
-                    "text": {
-                      "field": "total_energy",
-                      "fixed": "",
-                      "mode": "field"
-                    },
-                    "valign": "middle"
-                  },
-                  "constraint": {
-                    "horizontal": "left",
-                    "vertical": "top"
-                  },
-                  "name": "Element 2",
-                  "placement": {
-                    "height": 76,
-                    "left": 258,
-                    "top": 8,
-                    "width": 192
-                  },
-                  "type": "metric-value"
-                }
-              ],
-              "name": "Element 1725922425130",
-              "placement": {
-                "height": 100,
-                "left": 0,
-                "top": 0,
-                "width": 100
-              },
-              "type": "frame"
-            },
-            "showAdvancedTypes": true
-          },
-          "pluginVersion": "10.4.0",
-          "targets": [
-            {
-              "datasource": {
-                "type": "grafana-postgresql-datasource",
-                "uid": "P73AB8557DA7BD59F"
-              },
-              "editorMode": "code",
-              "format": "table",
-              "rawQuery": true,
-              "rawSql": "SELECT\n\tSUM(total_energy) AS total_energy,\n\tdate_trunc('hour', window_end) AS hour\nFROM energy_per_house\nGROUP BY date_trunc('hour', window_end)\nORDER BY hour desc LIMIT 1;\n",
-              "refId": "A",
-              "sql": {
-                "columns": [
-                  {
-                    "parameters": [],
-                    "type": "function"
-                  }
-                ],
-                "groupBy": [
-                  {
-                    "property": {
-                      "type": "string"
-                    },
-                    "type": "groupBy"
-                  }
-                ],
-                "limit": 50
-              }
-            }
-          ],
-          "title": "Net Consumption This Hour",
-          "type": "canvas"
-        },
-        {
-          "datasource": {
-            "type": "grafana-postgresql-datasource",
-            "uid": "P73AB8557DA7BD59F"
-          },
-          "fieldConfig": {
-            "defaults": {
-              "color": {
-                "mode": "thresholds"
-              },
-              "mappings": [],
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  {
-                    "color": "green",
-                    "value": null
-                  },
-                  {
-                    "color": "green",
-                    "value": 200
-                  },
-                  {
-                    "color": "#EAB839",
-                    "value": 600
-                  },
-                  {
-                    "color": "orange",
-                    "value": 1000
-                  },
-                  {
-                    "color": "red",
-                    "value": 1400
-                  }
-                ]
-              },
-              "unit": "kwatth"
-            },
-            "overrides": []
-          },
-          "gridPos": {
-            "h": 4,
-            "w": 8,
-            "x": 0,
-            "y": 13
           },
           "id": 12,
           "options": {
@@ -1765,8 +1576,7 @@
                     "value": 80
                   }
                 ]
-              },
-              "unit": "none"
+              }
             },
             "overrides": []
           },
@@ -1878,8 +1688,7 @@
                     "value": 80
                   }
                 ]
-              },
-              "unit": "none"
+              }
             },
             "overrides": []
           },
@@ -2166,13 +1975,13 @@
     "list": []
   },
   "time": {
-    "from": "now-7d",
-    "to": "now"
+    "from": "1997-05-01T00:00:00.000Z",
+    "to": "1997-05-04T23:59:59.000Z"
   },
   "timepicker": {},
   "timezone": "utc",
   "title": "Grid Monitoring",
   "uid": "edx0vtimbwn40d",
-  "version": 2,
+  "version": 1,
   "weekStart": ""
 }

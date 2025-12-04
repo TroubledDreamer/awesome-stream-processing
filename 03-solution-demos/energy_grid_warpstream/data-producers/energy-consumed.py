@@ -1,98 +1,105 @@
 import json
 import datetime
-from confluent_kafka import Producer
 import time
+from confluent_kafka import Producer  # Changed import  # pyright: ignore[reportMissingImports]
 import random
-import os
-import sys
 
-def delivery_report(err, msg):
-    if err is not None:
-        print(f"Message delivery failed: {err}")
-
+# Check if broker is available
 def is_broker_available():
     try:
-        p = Producer({
-            "bootstrap.servers": os.getenv("WARPSTREAM_BOOTSTRAP_SERVERS", "warpstream:9092"),
-            "socket.timeout.ms": 10000,
-            "connections.max.idle.ms": 10000
+        test_producer = Producer({
+            'bootstrap.servers': 'warpstream-playground:9092',
+            'socket.timeout.ms': '5000',
         })
-        _ = p.list_topics(timeout=5)
-        p.flush(1)
+        # Just test if we can create the producer and get basic connection
+        # Don't call close() synchronously
         return True
     except Exception as e:
         print(f"Broker not available: {e}")
         return False
 
-def simulate_energy_consumption(dt: datetime.datetime) -> float:
-    # simple synthetic load pattern
-    hour = dt.hour
-    peak = 1.0 if 18 <= hour <= 22 else 0.6 if 8 <= hour <= 18 else 0.3
-    base = 0.5
-    fluct = random.uniform(0.8, 1.2)
-    return round(base * peak * fluct, 3)
+def simulate_energy_consumption(date: datetime.datetime) -> float:
+    # Time of day factors
+    hour = date.hour
+    minute = date.minute
+    
+    # Basic curve for energy consumption based on time of day
+    if 6 <= hour < 9:  # Morning peak (6 AM to 9 AM)
+        time_factor = 1.4
+    elif 17 <= hour < 21:  # Evening peak (5 PM to 9 PM)
+        time_factor = 1.7
+    elif 9 <= hour < 17:  # Daytime (9 AM to 5 PM)
+        time_factor = 1.2
+    elif 21 <= hour or hour < 6:  # Nighttime (9 PM to 6 AM)
+        time_factor = 0.7
+    else:
+        time_factor = 0.5
 
-topic = os.getenv("ENERGY_CONSUMED_TOPIC", "energy_consumed")
+    fluctuation = random.uniform(0.9, 1.1)
+    base_consumption = 0.025 
+    consumption = base_consumption * time_factor * fluctuation
+    
+    return round(consumption, 3)
+
+# Kafka topic to produce messages to
+topic = 'energy_consumed'
 
 kafka_config = {
-    "bootstrap.servers": os.getenv("WARPSTREAM_BOOTSTRAP_SERVERS", "warpstream:9092"),
-    "message.timeout.ms": 120000,
-    "socket.keepalive.enable": True,
-    "socket.timeout.ms": 30000,
-    "connections.max.idle.ms": 300000,
-    "queue.buffering.max.messages": 100000,
-    "queue.buffering.max.kbytes": 1048576,
-    "linger.ms": 50,
+    'bootstrap.servers': 'warpstream-playground:9092',
+    'client.id': 'energy-producer',
+    'acks': '1',
+    'request.timeout.ms': '30000',
+    'session.timeout.ms': '30000',
+    'socket.keepalive.enable': True,  # Add this
+    'metadata.request.timeout.ms': '10000',  # Add this
 }
 
-print("Waiting for WarpStream broker to be available...")
-max_retries = int(os.getenv("BROKER_RETRY_MAX", "30"))
+# Wait for Kafka to be ready
+print("Waiting for Kafka broker to be available...")
+max_retries = 30
 retry_count = 0
 while not is_broker_available() and retry_count < max_retries:
-    retry_count += 1
-    print(f"Retry {retry_count}/{max_retries}...")
+    print(f"Retry {retry_count + 1}/{max_retries}...")
     time.sleep(2)
+    retry_count += 1
 
 if retry_count >= max_retries:
     print("Kafka broker did not become available. Exiting.")
-    sys.exit(1)
+    exit(1)
 
-print("WarpStream broker is available. Starting producer...")
+print("Kafka broker is available. Starting producer...")
 
-producer = Producer(kafka_config)
+# Kafka producer
+producer = Producer(kafka_config)  # Changed constructor
 
-producing = True
-max_messages = int(os.getenv("PRODUCE_MAX_MESSAGES", "0"))
-sent = 0
-meters = list(range(1, int(os.getenv("METER_COUNT", "10")) + 1))
+# Delivery callback for async confirmation
+def delivery_report(err, msg):
+    if err is not None:
+        print(f'Message delivery failed: {err}')
+    else:
+        print(f'Message delivered to {msg.topic()} [{msg.partition()}]')
 
-try:
-    while producing:
-        now = datetime.datetime.utcnow()
-        for meter in meters:
-            payload = {
-                "consumption_time": now.isoformat() + "Z",
-                "meter_id": meter,
-                "energy_consumed": simulate_energy_consumption(now)
-            }
-            message_str = json.dumps(payload)
-            try:
+if __name__ == "__main__":
+    try:
+        start = datetime.datetime.now()
+        current_time = datetime.datetime(1997, 5, 1, 0, 0, 0)
+        energy_consumed = simulate_energy_consumption(current_time)
+        while True:
+            for meter_id in range(1, 21):
+                data = {
+                    "consumption_time": current_time.strftime('%Y-%m-%dT%H:%M:%SZ'),
+                    "meter_id": meter_id,
+                    "energy_consumed": energy_consumed
+                }
+                message_str = json.dumps(data)
+                # Changed to produce() with callback
                 producer.produce(topic, value=message_str, callback=delivery_report)
-            except BufferError:
-                producer.poll(0.1)
-                time.sleep(0.05)
-                try:
-                    producer.produce(topic, value=message_str, callback=delivery_report)
-                except BufferError:
-                    print("Local queue full after retry, sleeping...")
-                    producer.poll(0.1)
-                    time.sleep(0.5)
-            producer.poll(0)
-            sent += 1
-            if max_messages and sent >= max_messages:
-                producing = False
-                break
-        time.sleep(float(os.getenv("PRODUCE_INTERVAL_SEC", "1.0")))
-finally:
-    print("Flushing outstanding messages...")
-    producer.flush(10)
+                producer.poll(0)  # Trigger delivery reports
+            current_time += datetime.timedelta(minutes=1)
+            if current_time.day != 1:
+                time.sleep(0.8)
+
+    finally:
+        print('Producer closed')
+        producer.flush()  # Ensure all messages are sent
+        producer.close()

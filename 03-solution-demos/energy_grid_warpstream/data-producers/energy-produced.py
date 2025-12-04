@@ -1,121 +1,118 @@
 import json
 import datetime
-from confluent_kafka import Producer
 import time
+from confluent_kafka import Producer  # Changed import  # pyright: ignore[reportMissingImports]
 import random
-import os
-import sys
 
-def delivery_report(err, msg):
-    if err is not None:
-        print(f"Message delivery failed: {err}")
-    else:
-        # optional: debug ack
-        # print(f"Delivered message to {msg.topic()} [{msg.partition()}] at {msg.offset()}")
-        pass
-
+# Check if broker is available
 def is_broker_available():
     try:
-        p = Producer({
-            "bootstrap.servers": os.getenv("WARPSTREAM_BOOTSTRAP_SERVERS", "warpstream:9092"),
-            "socket.timeout.ms": 10000,
-            "connections.max.idle.ms": 10000
+        test_producer = Producer({
+            'bootstrap.servers': 'warpstream-playground:9092',
+            'socket.timeout.ms': '5000',
         })
-        _ = p.list_topics(timeout=5)
-        p.flush(1)
+        # Just test if we can create the producer and get basic connection
+        # Don't call close() synchronously
         return True
     except Exception as e:
         print(f"Broker not available: {e}")
         return False
 
-def simulate_energy_production(dt: datetime.datetime) -> float:
-    hour = dt.hour
-    minute = dt.minute
-    if 6 <= hour <= 18:
+def simulate_energy_production(date: datetime.datetime) -> float:
+
+    hour = date.hour
+    minute = date.minute
+    
+    # Basic curve for solar production based on time of day (higher at noon)
+    if 6 <= hour <= 18:  # Solar production only between 6 AM and 6 PM
+        # Calculate time factor based on proximity to noon
         time_factor = max(0, 1 - abs(12 - (hour + minute / 60)) / 6)
     else:
-        time_factor = 0
-    month = dt.month
-    if month in [12, 1, 2]:
+        time_factor = 0  # No production at night
+
+    month = date.month
+    
+    if month in [12, 1, 2]:  # Winter
         season_factor = 0.3
-    elif month in [3, 4, 5]:
+    elif month in [3, 4, 5]:  # Spring
         season_factor = 0.5
-    elif month in [6, 7, 8]:
+    elif month in [6, 7, 8]:  # Summer
         season_factor = 0.8
-    else:
+    elif month in [9, 10, 11]:  # Autumn
         season_factor = 0.6
-    base_production = 0.05
+
+    base_production = 0.05  
+
     fluctuation = random.uniform(0.6, 1.0)
+
+    # Calculate the final production for the minute
     production = base_production * time_factor * season_factor * fluctuation
+    
     return round(production, 3)
 
-topic = os.getenv("ENERGY_PRODUCED_TOPIC", "energy_produced")
+# Kafka topic to produce messages to
+topic = 'energy_produced'
 
 kafka_config = {
-    "bootstrap.servers": os.getenv("WARPSTREAM_BOOTSTRAP_SERVERS", "warpstream:9092"),
-    "message.timeout.ms": 120000,
-    "socket.keepalive.enable": True,
-    "socket.timeout.ms": 30000,
-    "connections.max.idle.ms": 300000,
-    # librdkafka queue tuning
-    "queue.buffering.max.messages": 100000,
-    "queue.buffering.max.kbytes": 1048576,
-    "linger.ms": 50,
+    'bootstrap.servers': 'warpstream-playground:9092',
+    'client.id': 'energy-producer',
+    'acks': '1',
+    'request.timeout.ms': '30000',
+    'session.timeout.ms': '30000',
+    'socket.keepalive.enable': True,  # Add this
+    'metadata.request.timeout.ms': '10000',  # Add this
 }
 
-print("Waiting for WarpStream broker to be available...")
-max_retries = int(os.getenv("BROKER_RETRY_MAX", "30"))
+# Wait for Kafka to be ready
+print("Waiting for Kafka broker to be available...")
+max_retries = 30
 retry_count = 0
 while not is_broker_available() and retry_count < max_retries:
-    retry_count += 1
-    print(f"Retry {retry_count}/{max_retries}...")
+    print(f"Retry {retry_count + 1}/{max_retries}...")
     time.sleep(2)
+    retry_count += 1
 
 if retry_count >= max_retries:
     print("Kafka broker did not become available. Exiting.")
-    sys.exit(1)
+    exit(1)
 
-print("WarpStream broker is available. Starting producer...")
+print("Kafka broker is available. Starting producer...")
 
+# Delivery callback for async confirmation
+def delivery_report(err, msg):
+    if err is not None:
+        print(f'Message delivery failed: {err}')
+    else:
+        print(f'Message delivered to {msg.topic()} [{msg.partition()}]')
+
+# Kafka producer
 producer = Producer(kafka_config)
 
-producing = True
-# optional: limit messages for test environment
-max_messages = int(os.getenv("PRODUCE_MAX_MESSAGES", "0"))  # 0 => unlimited
-sent = 0
-meters = list(range(1, int(os.getenv("METER_COUNT", "10")) + 1))
+if __name__ == "__main__":
 
-try:
-    while producing:
-        now = datetime.datetime.utcnow()
-        for meter in meters:
-            payload = {
-                "production_time": now.isoformat() + "Z",
-                "meter_id": meter,
-                "energy_produced": simulate_energy_production(now)
-            }
-            message_str = json.dumps(payload)
-            try:
+    try:
+    # Produce messages to the Kafka topic
+        start = datetime.datetime.now()
+        current_time = datetime.datetime(1997, 5, 1, 0, 0, 0)
+        while True:
+            for meter_id in range(1, 21):
+                energy_produced = simulate_energy_production(current_time)
+                data = {
+                    "production_time": current_time.strftime('%Y-%m-%dT%H:%M:%SZ'),
+                    "meter_id": meter_id,
+                    "energy_produced": energy_produced
+                }
+                message_str = json.dumps(data)  # Remove .encode('utf-8')
+                # Changed to produce() with callback
                 producer.produce(topic, value=message_str, callback=delivery_report)
-            except BufferError:
-                # backpressure: poll and wait briefly then retry once
-                producer.poll(0.1)
-                time.sleep(0.05)
-                try:
-                    producer.produce(topic, value=message_str, callback=delivery_report)
-                except BufferError:
-                    # if still full, drop or sleep longer
-                    print("Local queue full after retry, sleeping...")
-                    producer.poll(0.1)
-                    time.sleep(0.5)
-            # service background delivery callbacks
-            producer.poll(0)
-            sent += 1
-            if max_messages and sent >= max_messages:
-                producing = False
-                break
-        # pacing: adjust to your test data cadence
-        time.sleep(float(os.getenv("PRODUCE_INTERVAL_SEC", "1.0")))
-finally:
-    print("Flushing outstanding messages...")
-    producer.flush(10)
+                producer.poll(0)  # Trigger delivery reports
+            current_time += datetime.timedelta(minutes=1)
+            if current_time.day != 1:
+                time.sleep(0.8)
+
+    finally:
+        print('Producer closed')
+
+        # Wait for any outstanding messages to be delivered and delivery reports received
+        producer.flush() 
+        producer.close()
