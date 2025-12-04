@@ -1,6 +1,6 @@
 FROM python:3.8
 
-RUN pip install confluent-kafka numpy
+RUN pip install confluent-kafka
 
 # Create a directory for the Python files
 WORKDIR /app

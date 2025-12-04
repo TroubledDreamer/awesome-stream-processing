@@ -5,7 +5,7 @@
     ) WITH (
       connector = 'kafka',
       topic = 'energy_consumed',
-      properties.bootstrap.server = 'warpstream-playground:9092'
+      properties.bootstrap.server = 'warp:9092'
   ) FORMAT PLAIN ENCODE JSON;
 
   CREATE SOURCE energy_produce (
@@ -15,7 +15,7 @@
     ) WITH (
       connector = 'kafka',
       topic = 'energy_produced',
-      properties.bootstrap.server = 'warpstream-playground:9092'
+      properties.bootstrap.server = 'warp:9092'
   ) FORMAT PLAIN ENCODE JSON;
 
   CREATE SOURCE pg_mydb WITH (

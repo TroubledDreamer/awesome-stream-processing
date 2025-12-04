@@ -2,26 +2,34 @@
 
 services:
 
-
- warpstream:
-  image: public.ecr.aws/warpstream-labs/warpstream_agent:latest
-  container_name: warpstream-playground
-  command: ["playground"]
-  ports:
-    - "9092:9092"
-    - "29092:29092"
-  environment:
-    - WARPSTREAM_PLAYGROUND_MODE=true
-  networks:
-    - warpstream-net
-
+  
+  warp:
+      image: public.ecr.aws/warpstream-labs/warpstream_agent:latest
+      ports:
+       - "9092:9092"
+      expose:
+       - "9092"
+      networks:
+      - kafka-net
+      command:
+        - demo
+      environment:
+        # this is a no-op as it will default on the custom advertised hostname defined above, but you can change this if you want to use a different hostname with Kafka
+        - WARPSTREAM_DISCOVERY_KAFKA_HOSTNAME_OVERRIDE=warp
+      healthcheck:
+        # Wait for the Agent to finish setting up the demo before marking it as healthy
+        # to delay the diagnose-connection command from running for a few seconds.
+        test: ["CMD", "kcmd", "-bootstrap-host", "warp", "-type", "diagnose-connection"]
+        interval: 5s
+        timeout: 15s
+        retries: 5
 
 
   # risingwave
+  risingwave:
 
- risingwave:
-
-    image: risingwavelabs/risingwave:v1.10.0
+    # image: risingwavelabs/risingwave:v1.10.0
+    image: risingwavelabs/risingwave:latest
 
     ports:
 
@@ -46,20 +54,21 @@ services:
             apt-get update && apt-get install -y iputils-ping
           fi &&
           echo "Pinging warpstream-playground..." &&
-          ping -c 5 warpstream-playground && 
+          ping -c 3 warp && 
           echo "Health check passed"
-      interval: 10s
-      timeout: 30s
-      retries: 5
+      interval: 5s
+      timeout: 10s
+      retries: 3
       start_period: 30s
     networks:
 
-     - warpstream-net
+     - kafka-net
 
 
- postgres:
 
-    image: postgres
+  postgres:
+
+    image: postgres:17
 
     environment:
 
@@ -91,10 +100,10 @@ services:
 
     networks:
 
-     - warpstream-net
+     - kafka-net
 
 
- grafana:
+  grafana:
 
     image: grafana/grafana
 
@@ -121,11 +130,11 @@ services:
         condition: service_completed_successfully
     networks:
 
-      - warpstream-net
+      - kafka-net
 
 
- postgres_prepare:
-    image: postgres
+  postgres_prepare:
+    image: postgres:17
     depends_on: 
       postgres:
         condition: service_healthy
@@ -141,36 +150,31 @@ services:
     container_name: postgres_prepare
     restart: on-failure
     networks:
-      - warpstream-net
+      - kafka-net
 
 
   # topic producer
 
- topic_producer:
+  kafka-producer:
     build:
-
       context: .
-
       dockerfile: data-producers/Dockerfile
-
     depends_on:
-
-     - warpstream
-
-
+      - warp
     environment:
-
-      KAFKA_BOOTSTRAP_SERVERS: warpstream-playground:9092
-
+      KAFKA_BOOTSTRAP_SERVERS: warp:9092
+    command: >
+      sh -c "echo 'Waiting 30 seconds for Warpstream to fully initialize...' && 
+            sleep 30 && 
+            python run-producers.py"
     restart: always
-
     networks:
-      - warpstream-net
+      - kafka-net
 
 # RisingWave setup
 
- risingwave_setup:
-    image: postgres:15
+  risingwave_setup:
+    image: postgres:17
     depends_on:
       risingwave:
         condition: service_healthy
@@ -192,13 +196,17 @@ services:
     container_name: risingwave_setup
     restart: on-failure
     networks:
-      - warpstream-net
+      - kafka-net
 
 
 networks:
 
-  warpstream-net:
+  kafka-net:
 
     driver: bridge
 
-    name: warpstream-net
+    name: kafka-net
+
+# volumes:
+#   minio_data:
+#     driver: local
