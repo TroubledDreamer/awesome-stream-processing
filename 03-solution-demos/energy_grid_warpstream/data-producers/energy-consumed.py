@@ -107,7 +107,7 @@ def main():
 
             # Sleep only when simulating real-time progression
             if current_time.day != 1:
-                time.sleep(0.05)
+                time.sleep(0.2)
 
     except KeyboardInterrupt:
         print("[main] Interrupted by user")
