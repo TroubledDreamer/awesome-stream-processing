@@ -104,7 +104,7 @@ def main():
             producer.flush(1.0)
             current_time += datetime.timedelta(minutes=1)
             if current_time.day != 1:
-                time.sleep(0.2)
+                time.sleep(0.009)
 
     except KeyboardInterrupt:
         print("[main] Interrupted by user")

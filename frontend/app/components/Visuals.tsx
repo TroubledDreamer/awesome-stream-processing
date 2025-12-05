@@ -116,8 +116,87 @@ export default function Visuals() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    // Add WebSocket connection for real-time updates
+    const WS_URL = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8080";
+    let ws: WebSocket | null = null;
+
+    const connectWebSocket = () => {
+      console.log("[Visuals] Connecting to WebSocket:", WS_URL);
+      ws = new WebSocket(WS_URL);
+
+      ws.onopen = () => {
+        console.log("[Visuals] WebSocket connected");
+        // No subscription needed - server broadcasts to all clients
+      };
+
+      ws.onmessage = (event) => {
+        console.log("[Visuals] Raw WebSocket message:", event.data);
+        try {
+          const msg = JSON.parse(event.data);
+          console.log("[Visuals] Parsed WebSocket data:", msg);
+          
+          if (msg?.type === "energy_update" && msg.data) {
+            console.log("[Visuals] Energy update received:", msg.data);
+            
+            // Update time series from WebSocket data
+            if (msg.data.timeSeries) {
+              console.log("[Visuals] TimeSeries data received:", msg.data.timeSeries.length, "points");
+              console.log("[Visuals] Sample point:", msg.data.timeSeries[0]);
+              
+              const series: TimePoint[] = msg.data.timeSeries
+                .slice(0, 7)
+                .reverse()
+                .map((row: any) => {
+                  const time = new Date(row.window_end);
+                  return {
+                    label: time.toLocaleTimeString("en-US", {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    }),
+                    consumption: row.energy_consumed || 0,
+                    production: row.energy_produced || 0,
+                  };
+                });
+              
+              console.log("[Visuals] Setting WebSocket time series:", series);
+              setTimeSeries(series);
+            }
+            
+            // Update top households from WebSocket data
+            if (msg.data.totals) {
+              const topMeters = msg.data.totals
+                .sort((a: any, b: any) => b.total_consumed - a.total_consumed)
+                .slice(0, 5)
+                .map((row: any) => ({
+                  label: String(row.meter_id),
+                  value: Math.round(row.total_consumed * 10) / 10,
+                }));
+              
+              console.log("[Visuals] Setting WebSocket top households:", topMeters);
+              setTopHouseholds(topMeters);
+            }
+          } else if (msg?.type === "ping") {
+            // Ignore heartbeat
+            return;
+          }
+        } catch (err) {
+          console.error("[Visuals] WebSocket parse error:", err);
+        }
+      };
+
+      ws.onerror = (err) => {
+        console.error("[Visuals] WebSocket error:", err);
+      };
+
+      ws.onclose = () => {
+        console.log("[Visuals] WebSocket closed, will reconnect...");
+        setTimeout(connectWebSocket, 2000);
+      };
+    };
+
     const fetchData = async () => {
       try {
+        console.log("[Visuals] Fetching REST API data...");
         const [energyRes, billsRes] = await Promise.all([
           fetch("/api/energy"),
           fetch("/api/bills"),
@@ -125,6 +204,9 @@ export default function Visuals() {
 
         const energyData = await energyRes.json();
         const billsData = await billsRes.json();
+        
+        console.log("[Visuals] REST API energyData:", energyData);
+        console.log("[Visuals] REST API billsData:", billsData);
 
         // Build time series from API data
         const series: TimePoint[] = (energyData.timeSeries || [])
@@ -270,9 +352,15 @@ export default function Visuals() {
       }
     };
 
+    // Start both WebSocket and REST API fetching
+    connectWebSocket();
     fetchData();
     const interval = setInterval(fetchData, 5000);
-    return () => clearInterval(interval);
+    
+    return () => {
+      clearInterval(interval);
+      ws?.close();
+    };
   }, []);
 
   const netFlow = timeSeries.map((p) => ({
