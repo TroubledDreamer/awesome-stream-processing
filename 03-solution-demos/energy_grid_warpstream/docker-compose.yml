@@ -170,7 +170,32 @@ services:
     restart: always
     networks:
       - kafka-net
+  
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    networks:
+      - kafka-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
+  # websocket-server:
+  # build:
+  #   context: .
+  #   dockerfile: Dockerfile.websocket
+  # ports:
+  #   - "8080:8080"
+  # environment:
+  #   POSTGRES_HOST: postgres
+  #   POSTGRES_USER: myuser
+  #   POSTGRES_PASSWORD: 123456
+  # depends_on:
+  #   - postgres
+  #   - risingwave
 # RisingWave setup
 
   risingwave_setup:
