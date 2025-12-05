@@ -6,6 +6,7 @@ type Stat = {
   value: number;
   delta: number;
   tone: string;
+  isUpdated?: boolean;
 };
 
 type HeaderDashProps = {
@@ -23,20 +24,13 @@ const DEFAULT_STATS: Stat[] = [
 export default function HeaderDash({ contextLabel }: HeaderDashProps) {
   const [stats, setStats] = useState<Stat[]>(DEFAULT_STATS);
   const [messageCount, setMessageCount] = useState(0);
+  const [flashingStats, setFlashingStats] = useState<Set<string>>(new Set());
 
   const wsRef = useRef<WebSocket | null>(null);
   const prevValuesRef = useRef<Record<string, number>>({});
-  const pendingDataRef = useRef<any>(null);
-  const animRef = useRef<number>(0);
-  const lastAppliedRef = useRef<{ total_consumed: number; total_produced: number } | null>(null);
-
-  // Throttle UI for ultra-high frequency updates (6000/sec = 0.167ms, but limit to 120 FPS for smooth UI)
-  const MIN_UPDATE_INTERVAL_MS = 8; 
-  const lastUpdateRef = useRef(0);
-  const EPSILON = 0.0001; // ignore tiny floating point changes
 
   useEffect(() => {
-    const WS_URL = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8080";
+    const WS_URL = "ws://10.14.124.165:8080";
 
     let unmounted = false;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -48,48 +42,47 @@ export default function HeaderDash({ contextLabel }: HeaderDashProps) {
     }
 
     function applyUpdate(data: any) {
-      const now = Date.now();
-      if (now - lastUpdateRef.current < MIN_UPDATE_INTERVAL_MS) return;
-      lastUpdateRef.current = now;
-
       const totalConsumption = Number(data.total_consumed || 0);
       const totalProduction = Number(data.total_produced || 0);
-      const last = lastAppliedRef.current;
-      if (
-        last &&
-        Math.abs(last.total_consumed - totalConsumption) < EPSILON &&
-        Math.abs(last.total_produced - totalProduction) < EPSILON
-      ) {
-        return; // no meaningful change
-      }
-      lastAppliedRef.current = { total_consumed: totalConsumption, total_produced: totalProduction };
       const netFlow = totalProduction - totalConsumption;
       const deficit = Math.abs(netFlow);
+
+      const updatedTitles = new Set<string>();
+      
+      // Check which values changed
+      if (prevValuesRef.current["Total Consumption (kWh)"] !== totalConsumption) updatedTitles.add("Total Consumption (kWh)");
+      if (prevValuesRef.current["Total Production (kWh)"] !== totalProduction) updatedTitles.add("Total Production (kWh)");
+      if (prevValuesRef.current["Net Grid Flow (kWh)"] !== netFlow) updatedTitles.add("Net Grid Flow (kWh)");
+      if (prevValuesRef.current["Grid Deficit (kWh)"] !== deficit) updatedTitles.add("Grid Deficit (kWh)");
 
       const newStats: Stat[] = [
         {
           title: "Total Consumption (kWh)",
-          value: Number(totalConsumption.toFixed(3)),
+          value: Number(totalConsumption.toFixed(6)),
           delta: calcPctChange("Total Consumption (kWh)", totalConsumption),
           tone: "text-[#0b6b6b]",
+          isUpdated: updatedTitles.has("Total Consumption (kWh)")
         },
         {
           title: "Total Production (kWh)",
-          value: Number(totalProduction.toFixed(3)),
+          value: Number(totalProduction.toFixed(6)),
           delta: calcPctChange("Total Production (kWh)", totalProduction),
           tone: "text-[#0b6b6b]",
+          isUpdated: updatedTitles.has("Total Production (kWh)")
         },
         {
           title: "Net Grid Flow (kWh)",
-          value: Number(netFlow.toFixed(3)),
+          value: Number(netFlow.toFixed(6)),
           delta: calcPctChange("Net Grid Flow (kWh)", netFlow),
           tone: netFlow >= 0 ? "text-[#0b6b6b]" : "text-red-400",
+          isUpdated: updatedTitles.has("Net Grid Flow (kWh)")
         },
         {
           title: "Grid Deficit (kWh)",
-          value: Number(deficit.toFixed(3)),
+          value: Number(deficit.toFixed(6)),
           delta: calcPctChange("Grid Deficit (kWh)", deficit),
           tone: "text-red-400",
+          isUpdated: updatedTitles.has("Grid Deficit (kWh)")
         },
       ];
 
@@ -99,15 +92,13 @@ export default function HeaderDash({ contextLabel }: HeaderDashProps) {
       prevValuesRef.current["Grid Deficit (kWh)"] = deficit;
 
       setStats(newStats);
+      setFlashingStats(updatedTitles);
+      
+      // Clear flash after 300ms
+      setTimeout(() => setFlashingStats(new Set()), 300);
     }
 
-    function animationLoop() {
-      if (pendingDataRef.current) {
-        applyUpdate(pendingDataRef.current);
-        pendingDataRef.current = null;
-      }
-      if (!unmounted) animRef.current = requestAnimationFrame(animationLoop);
-    }
+
 
     function handleMessage(raw: any) {
       try {
@@ -115,17 +106,14 @@ export default function HeaderDash({ contextLabel }: HeaderDashProps) {
 
         if (msg?.type === "energy_update" && msg.data) {
           setMessageCount((c) => c + 1);
-          // Calculate totals from the arrays
           const totals = msg.data.totals || [];
-          // Reduce once; storing as pending to render at most once per animation frame.
           const totalConsumption = totals.reduce((sum: number, row: any) => sum + (Number(row.total_consumed) || 0), 0);
           const totalProduction = totals.reduce((sum: number, row: any) => sum + (Number(row.total_produced) || 0), 0);
           
-          // Transform to expected format
-          pendingDataRef.current = {
+          applyUpdate({
             total_consumed: totalConsumption,
             total_produced: totalProduction
-          };
+          });
         } else if (msg?.type === "ping") {
           // Ignore heartbeat messages
           return;
@@ -156,13 +144,11 @@ export default function HeaderDash({ contextLabel }: HeaderDashProps) {
       };
     }
 
-    animRef.current = requestAnimationFrame(animationLoop);
     connect();
 
     return () => {
       unmounted = true;
       if (reconnectTimer) clearTimeout(reconnectTimer);
-      cancelAnimationFrame(animRef.current);
       wsRef.current?.close();
     };
   }, []);
@@ -175,13 +161,17 @@ export default function HeaderDash({ contextLabel }: HeaderDashProps) {
             key={stat.title}
             className="flex flex-1 flex-col gap-2 rounded-xl border border-[#dbe5f0] bg-white px-5 py-5 text-[#0b1b33]"
           >
-            <p className="text-3xl font-bold">
-              {stat.value.toLocaleString(undefined, { minimumFractionDigits: 3, maximumFractionDigits: 3 })}
+            <p className={`text-3xl font-bold transition-all duration-300 ${
+              flashingStats.has(stat.title) ? 'bg-yellow-200 scale-105' : ''
+            }`}>
+              {stat.value.toLocaleString(undefined, { minimumFractionDigits: 6, maximumFractionDigits: 6 })}
             </p>
             <p className="text-sm font-medium text-[#4a5568]">{stat.title}</p>
-            <p className={`text-sm font-medium ${stat.tone}`}>
+            <p className={`text-sm font-medium ${stat.tone} transition-all duration-300 ${
+              flashingStats.has(stat.title) ? 'font-bold' : ''
+            }`}>
               {stat.delta >= 0 ? "+" : ""}
-              {stat.delta.toLocaleString(undefined, { minimumFractionDigits: 3, maximumFractionDigits: 3 })}%
+              {stat.delta.toLocaleString(undefined, { minimumFractionDigits: 6, maximumFractionDigits: 6 })}%
             </p>
           </div>
         ))}

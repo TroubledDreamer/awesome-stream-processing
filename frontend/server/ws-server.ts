@@ -19,11 +19,18 @@ const redis = new Redis({
 
 const PORT = parseInt(process.env.WS_PORT || '8080', 10);
 
-// Interval in ms (1/5 second)
-const UPDATE_INTERVAL = 200;
+// Interval in ms (faster updates for more visible changes)
+const UPDATE_INTERVAL = 100;
 
 const server = createServer();
 const wss = new WebSocketServer({ server });
+
+// Add variance to simulate more realistic energy fluctuations
+function addVariance(baseValue: number, variancePercent: number = 15): number {
+    const variance = baseValue * (variancePercent / 100);
+    const randomFactor = (Math.random() - 0.5) * 2; // -1 to 1
+    return Math.max(0, baseValue + (variance * randomFactor));
+}
 
 // Broadcast function
 async function broadcastEnergyData() {
@@ -33,6 +40,13 @@ async function broadcastEnergyData() {
         let data;
         if (cached) {
             data = JSON.parse(cached);
+            // Add variance to cached data to simulate real-time fluctuations
+            data.totals = data.totals.map((row: any) => ({
+                ...row,
+                total_consumed: addVariance(row.total_consumed, 20),
+                total_produced: addVariance(row.total_produced, 30),
+                total_energy: addVariance(row.total_energy, 25)
+            }));
         } else {
             // Fetch totals
             const totalsQuery = await pool.query(`
@@ -61,7 +75,22 @@ async function broadcastEnergyData() {
                 LIMIT 20
             `);
 
-            data = { totals: totalsQuery.rows, timeSeries: timeSeriesQuery.rows };
+            // Add variance to fresh data
+            const totalsWithVariance = totalsQuery.rows.map((row: any) => ({
+                ...row,
+                total_consumed: addVariance(parseFloat(row.total_consumed), 20),
+                total_produced: addVariance(parseFloat(row.total_produced), 30),
+                total_energy: addVariance(parseFloat(row.total_energy), 25)
+            }));
+            
+            const timeSeriesWithVariance = timeSeriesQuery.rows.map((row: any) => ({
+                ...row,
+                energy_consumed: addVariance(parseFloat(row.energy_consumed), 25),
+                energy_produced: addVariance(parseFloat(row.energy_produced), 35),
+                total_energy: addVariance(parseFloat(row.total_energy), 30)
+            }));
+
+            data = { totals: totalsWithVariance, timeSeries: timeSeriesWithVariance };
             // Cache for 1 second to reduce DB pressure while allowing frequent broadcasts
             await redis.setex('energy_data', 1, JSON.stringify(data));
         }
