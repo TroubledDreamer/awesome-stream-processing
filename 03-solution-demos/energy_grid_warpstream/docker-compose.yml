@@ -208,7 +208,7 @@ services:
     command: |
       /bin/sh -c "
         echo 'Waiting for RisingWave to be ready...' &&
-        sleep 5 &&
+        sleep 10 &&
         echo 'Running source commands...' &&
         psql -h risingwave -p 4566 -d dev -U root -f /source_commands.sql &&
         echo 'Running materialized view commands...' &&

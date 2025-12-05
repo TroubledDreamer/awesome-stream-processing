@@ -22,15 +22,18 @@ const DEFAULT_STATS: Stat[] = [
 
 export default function HeaderDash({ contextLabel }: HeaderDashProps) {
   const [stats, setStats] = useState<Stat[]>(DEFAULT_STATS);
+  const [messageCount, setMessageCount] = useState(0);
 
   const wsRef = useRef<WebSocket | null>(null);
   const prevValuesRef = useRef<Record<string, number>>({});
   const pendingDataRef = useRef<any>(null);
   const animRef = useRef<number>(0);
+  const lastAppliedRef = useRef<{ total_consumed: number; total_produced: number } | null>(null);
 
   // Throttle UI for ultra-high frequency updates (6000/sec = 0.167ms, but limit to 120 FPS for smooth UI)
   const MIN_UPDATE_INTERVAL_MS = 8; 
   const lastUpdateRef = useRef(0);
+  const EPSILON = 0.0001; // ignore tiny floating point changes
 
   useEffect(() => {
     const WS_URL = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8080";
@@ -51,6 +54,15 @@ export default function HeaderDash({ contextLabel }: HeaderDashProps) {
 
       const totalConsumption = Number(data.total_consumed || 0);
       const totalProduction = Number(data.total_produced || 0);
+      const last = lastAppliedRef.current;
+      if (
+        last &&
+        Math.abs(last.total_consumed - totalConsumption) < EPSILON &&
+        Math.abs(last.total_produced - totalProduction) < EPSILON
+      ) {
+        return; // no meaningful change
+      }
+      lastAppliedRef.current = { total_consumed: totalConsumption, total_produced: totalProduction };
       const netFlow = totalProduction - totalConsumption;
       const deficit = Math.abs(netFlow);
 
@@ -102,8 +114,10 @@ export default function HeaderDash({ contextLabel }: HeaderDashProps) {
         const msg = JSON.parse(raw);
 
         if (msg?.type === "energy_update" && msg.data) {
+          setMessageCount((c) => c + 1);
           // Calculate totals from the arrays
           const totals = msg.data.totals || [];
+          // Reduce once; storing as pending to render at most once per animation frame.
           const totalConsumption = totals.reduce((sum: number, row: any) => sum + (Number(row.total_consumed) || 0), 0);
           const totalProduction = totals.reduce((sum: number, row: any) => sum + (Number(row.total_produced) || 0), 0);
           
@@ -164,6 +178,7 @@ export default function HeaderDash({ contextLabel }: HeaderDashProps) {
             <p className="text-3xl font-bold">
               {stat.value.toLocaleString(undefined, { minimumFractionDigits: 3, maximumFractionDigits: 3 })}
             </p>
+            <p className="text-sm font-medium text-[#4a5568]">{stat.title}</p>
             <p className={`text-sm font-medium ${stat.tone}`}>
               {stat.delta >= 0 ? "+" : ""}
               {stat.delta.toLocaleString(undefined, { minimumFractionDigits: 3, maximumFractionDigits: 3 })}%
@@ -172,7 +187,7 @@ export default function HeaderDash({ contextLabel }: HeaderDashProps) {
         ))}
       </div>
       <div className="mt-2 text-xs font-medium text-[#4a5568]">
-        {contextLabel || "All households"} • Live from RisingWave via WebSocket
+        {contextLabel || "All households"} • Live from RisingWave via WebSocket • Messages received: {messageCount}
       </div>
     </section>
   );
