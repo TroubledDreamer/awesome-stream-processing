@@ -35,28 +35,31 @@ export default function HeaderDash({ selectedHousehold }: HeaderDashProps) {
 
       const netFlow = totalProduction - totalConsumption;
 
+      const formatNumber = (num: number) =>
+        num.toLocaleString(undefined, { minimumFractionDigits: 4, maximumFractionDigits: 4 });
+
       const gridStats: Stat[] = [
         {
           title: "Total Consumption (kWh)",
-          value: totalConsumption.toFixed(4),
+          value: formatNumber(totalConsumption),
           delta: 1.5,
           tone: "text-[#0b6b6b]",
         },
         {
           title: "Total Production (kWh)",
-          value: totalProduction.toFixed(4),
+          value: formatNumber(totalProduction),
           delta: -0.8,
           tone: "text-[#0b6b6b]",
         },
         {
           title: "Net Grid Flow (kWh)",
-          value: netFlow.toFixed(4),
+          value: formatNumber(netFlow),
           delta: 2.1,
           tone: netFlow >= 0 ? "text-[#0b6b6b]" : "text-red-400",
         },
         {
           title: "Grid Deficit (kWh)",
-          value: Math.abs(totalEnergy).toFixed(4),
+          value: formatNumber(Math.abs(totalEnergy)),
           delta: -5.0,
           tone: "text-red-400",
         },
@@ -66,31 +69,34 @@ export default function HeaderDash({ selectedHousehold }: HeaderDashProps) {
     });
 
     // 🔥 RECEIVE REAL-TIME METRIC DATA
-    s.on("metricUpdate", (metricsData) => {
-      console.log("Received metrics:", metricsData);
+    // s.on("metricUpdate", (metricsData) => {
+    //   console.log("Received metrics:", metricsData);
 
-      const metricCards: Stat[] = [
-        {
-          title: "Net Consumption This Hour",
-          value: `${metricsData.netConsumptionHour.toFixed(4)} kWh`,
-        },
-        {
-          title: "Net Consumption This Day",
-          value: `${metricsData.netConsumptionDay.toFixed(4)} kWh`,
-        },
-        {
-          title: "Net Energy Consumption This Month",
-          value: `${metricsData.netConsumptionMonth.toFixed(4)} kWh`,
-        },
-        {
-          title: "Average Energy Consumption per Day",
-          value: `${metricsData.avgPerDay.toFixed(4)} kWh`,
-          note: "Current month avg",
-        },
-      ];
+    //   const formatNumber = (num: number) =>
+    //     num.toLocaleString(undefined, { minimumFractionDigits: 4, maximumFractionDigits: 4 });
 
-      setStats((prev) => [...prev.slice(0, 4), ...metricCards]);
-    });
+    //   const metricCards: Stat[] = [
+    //     {
+    //       title: "Net Consumption This Hour",
+    //       value: `${formatNumber(metricsData.netConsumptionHour)} kWh`,
+    //     },
+    //     {
+    //       title: "Net Consumption This Day",
+    //       value: `${formatNumber(metricsData.netConsumptionDay)} kWh`,
+    //     },
+    //     {
+    //       title: "Net Energy Consumption This Month",
+    //       value: `${formatNumber(metricsData.netConsumptionMonth)} kWh`,
+    //     },
+    //     {
+    //       title: "Average Energy Consumption per Day",
+    //       value: `${formatNumber(metricsData.avgPerDay)} kWh`,
+    //       note: "Current month avg",
+    //     },
+    //   ];
+
+    //   setStats((prev) => [...prev.slice(0, 4), ...metricCards]);
+    // });
 
     // Cleanup listeners
     return () => {
@@ -114,7 +120,7 @@ export default function HeaderDash({ selectedHousehold }: HeaderDashProps) {
             ) : stat.delta !== undefined ? (
               <p className={`text-sm font-medium ${stat.tone}`}>
                 {stat.delta > 0 ? "+" : ""}
-                {stat.delta.toFixed(4)}%
+                {stat.delta.toLocaleString(undefined, { minimumFractionDigits: 4, maximumFractionDigits: 4 })}%
               </p>
             ) : null}
           </div>

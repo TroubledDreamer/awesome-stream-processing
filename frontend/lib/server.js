@@ -1,6 +1,3 @@
-// ---------------------------
-// IMPORTS (CommonJS)
-// ---------------------------
 const { createServer } = require("http");
 const { Server } = require("socket.io");
 const { Pool } = require("pg");

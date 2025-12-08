@@ -182,9 +182,9 @@ export default function Households({ selectedId, onSelect }: HouseholdsProps) {
     );
   }
 
-  const filteredHouseholds = households.filter((home) => {
-    return true;
-  });
+  const filteredHouseholds = households
+  .filter((home) => true)
+  .sort((a, b) => Number(a.id) - Number(b.id));
 
 
   const buildFilterLabel = () => {
