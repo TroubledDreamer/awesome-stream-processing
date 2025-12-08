@@ -30,7 +30,7 @@ export default function HeaderDash({ contextLabel }: HeaderDashProps) {
   const prevValuesRef = useRef<Record<string, number>>({});
 
   useEffect(() => {
-    const WS_URL = "ws://10.14.124.165:8080";
+    const WS_URL = "ws://localhost:8080";
 
     let unmounted = false;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;

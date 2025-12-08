@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import { useEnergyStream } from "@/lib/useEnergyStream";
 
 type Household = {
   id: string;
@@ -52,6 +53,7 @@ type HouseholdsProps = {
 };
 
 export default function Households({ selectedId, onSelect }: HouseholdsProps) {
+  const { energy } = useEnergyStream(150);
   const [households, setHouseholds] = useState<Household[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeMonth, setActiveMonth] = useState<string>("All");
@@ -65,13 +67,10 @@ export default function Households({ selectedId, onSelect }: HouseholdsProps) {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [energyRes, billsRes, customersRes] = await Promise.all([
-          fetch("/api/energy"),
+        const [billsRes, customersRes] = await Promise.all([
           fetch("/api/bills"),
           fetch("/api/customers"),
         ]);
-
-        const energyData = await energyRes.json();
         const billsData = await billsRes.json();
         const customersData = await customersRes.json();
 
@@ -91,7 +90,7 @@ export default function Households({ selectedId, onSelect }: HouseholdsProps) {
           string,
           { consumption: number; production: number }
         >();
-        (energyData.totals || []).forEach((row: any) => {
+        ((energy as any)?.totals || []).forEach((row: any) => {
           energyTotalsMap.set(String(row.meter_id), {
             consumption: row.total_consumed || 0,
             production: row.total_produced || 0,
@@ -170,7 +169,7 @@ export default function Households({ selectedId, onSelect }: HouseholdsProps) {
     fetchData();
     const interval = setInterval(fetchData, 5000);
     return () => clearInterval(interval);
-  }, []);
+  }, [energy?.totals]);
 
   if (loading) {
     return (

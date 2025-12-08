@@ -30,7 +30,9 @@ export function useEnergyStream(throttleMs = 150): EnergyStream {
   useEffect(() => {
     let stopped = false;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-    const WS_URL = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8081";
+    // Align with the main dashboard WebSocket so every component shares the
+    // same live feed
+    const WS_URL = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8080";
 
     const applyEnergy = (payload: any) => {
       const now = Date.now();
@@ -76,6 +78,8 @@ export function useEnergyStream(throttleMs = 150): EnergyStream {
       ws.onmessage = (ev) => {
         try {
           const parsed = typeof ev.data === "string" ? JSON.parse(ev.data) : ev.data;
+          if (parsed?.type === "ping") return;
+
           setMessageCount((c) => c + 1);
           applyEnergy(parsed);
         } catch (err) {

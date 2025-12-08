@@ -1,50 +1,76 @@
 "use client";
 
-import { useEffect, useState } from "react";
-
-interface MetricsData {
-  currentTime: string;
-  netConsumptionMonth: number;
-  netConsumptionDay: number;
-  netConsumptionHour: number;
-  avgPerDay: number;
-  avgPerHour: number;
-  hourlyChart: Array<{ hour: string; total_energy: number }>;
-  dailyChart: Array<{ day: string; total_energy: number }>;
-}
+import { useMemo, useState } from "react";
+import { useEnergyStream } from "@/lib/useEnergyStream";
 
 export default function MetricsPanel() {
-  const [metrics, setMetrics] = useState<MetricsData | null>(null);
-  const [loading, setLoading] = useState(true);
+  const { energy, lastMessageTs } = useEnergyStream(200);
   const [isExpanded, setIsExpanded] = useState(false);
 
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const res = await fetch("/api/metrics");
-        const data = await res.json();
-        setMetrics(data);
-      } catch (error) {
-        console.error("Failed to fetch metrics:", error);
-      } finally {
-        setLoading(false);
-      }
+  const derived = useMemo(() => {
+    const ts = energy?.timeSeries || [];
+    const totals = energy?.totals || [];
+
+    const latestTs = ts[0]?.window_end ? new Date(ts[0].window_end) : new Date();
+    const now = lastMessageTs ? new Date(lastMessageTs) : latestTs;
+
+    // Group by hour/day (based on timeSeries)
+    const hourlyChart = ts.map((row: any) => ({
+      hour: row.window_end,
+      total_energy: Number(row.total_energy || 0),
+    }));
+
+    const dailyMap = new Map<string, number>();
+    ts.forEach((row: any) => {
+      const dayKey = new Date(row.window_end).toISOString().slice(0, 10);
+      const prev = dailyMap.get(dayKey) || 0;
+      dailyMap.set(dayKey, prev + Number(row.total_energy || 0));
+    });
+    const dailyChart = Array.from(dailyMap.entries()).map(([day, total_energy]) => ({
+      day,
+      total_energy,
+    }));
+
+    const netConsumptionHour = hourlyChart
+      .filter((p) => new Date(p.hour).getHours() === now.getHours())
+      .reduce((sum, p) => sum + p.total_energy, 0);
+
+    const netConsumptionDay = dailyMap.get(now.toISOString().slice(0, 10)) || 0;
+    const netConsumptionMonth = totals.reduce(
+      (sum: number, row: any) => sum + Number(row.total_energy || 0),
+      0
+    );
+
+    const avgPerDay =
+      dailyChart.length > 0
+        ? dailyChart.reduce((sum, p) => sum + p.total_energy, 0) / dailyChart.length
+        : 0;
+    const avgPerHour =
+      hourlyChart.length > 0
+        ? hourlyChart.reduce((sum, p) => sum + p.total_energy, 0) / hourlyChart.length
+        : 0;
+
+    return {
+      currentTime: now,
+      netConsumptionHour,
+      netConsumptionDay,
+      netConsumptionMonth,
+      avgPerDay,
+      avgPerHour,
+      hourlyChart,
+      dailyChart,
     };
+  }, [energy, lastMessageTs]);
 
-    fetchData();
-    const interval = setInterval(fetchData, 5000);
-    return () => clearInterval(interval);
-  }, []);
+  const currentTime = derived.currentTime;
 
-  if (loading || !metrics) {
+  if (!energy?.timeSeries?.length && !energy?.totals?.length) {
     return (
       <section className="mx-auto w-full max-w-screen-2xl px-6 pb-8">
-        <div className="text-center py-8 text-zinc-500">Loading metrics...</div>
+        <div className="text-center py-8 text-zinc-500">Waiting for live metrics...</div>
       </section>
     );
   }
-
-  const currentTime = new Date(metrics.currentTime);
 
   return (
     <section className="mx-auto w-full max-w-screen-2xl px-6 pb-8">
@@ -95,7 +121,7 @@ export default function MetricsPanel() {
                 Net Consumption This Hour
               </h3>
               <p className="text-3xl font-bold text-green-600">
-                {Math.round(metrics.netConsumptionHour * 10) / 10} kWh
+                {Math.round(derived.netConsumptionHour * 10) / 10} kWh
               </p>
               <p className="text-xs text-[#4a5568] mt-1">
                 {currentTime.toLocaleTimeString("en-US", {
@@ -111,7 +137,7 @@ export default function MetricsPanel() {
                 Net Consumption This Day
               </h3>
               <p className="text-3xl font-bold text-green-600">
-                {Math.round(metrics.netConsumptionDay * 10) / 10} kWh
+                {Math.round(derived.netConsumptionDay * 10) / 10} kWh
               </p>
               <p className="text-xs text-[#4a5568] mt-1">
                 {currentTime.toLocaleDateString()}
@@ -124,7 +150,7 @@ export default function MetricsPanel() {
                 Net Energy Consumption This Month
               </h3>
               <p className="text-3xl font-bold text-red-600">
-                {Math.round(metrics.netConsumptionMonth * 10) / 10} kWh
+                {Math.round(derived.netConsumptionMonth * 10) / 10} kWh
               </p>
               <p className="text-xs text-[#4a5568] mt-1">
                 {currentTime.toLocaleDateString("en-US", {
@@ -140,7 +166,7 @@ export default function MetricsPanel() {
                 Average Energy Consumption per Day
               </h3>
               <p className="text-3xl font-bold text-[#0b6b6b]">
-                {Math.round(metrics.avgPerDay * 10) / 10} kWh
+                {Math.round(derived.avgPerDay * 10) / 10} kWh
               </p>
               <p className="text-xs text-[#4a5568] mt-1">
                 Current month average
@@ -153,7 +179,7 @@ export default function MetricsPanel() {
                 Average Energy Consumption per Hour
               </h3>
               <p className="text-3xl font-bold text-[#0b6b6b]">
-                {Math.round(metrics.avgPerHour * 10) / 10} kWh
+                {Math.round(derived.avgPerHour * 10) / 10} kWh
               </p>
               <p className="text-xs text-[#4a5568] mt-1">Today's average</p>
             </div>
@@ -166,14 +192,17 @@ export default function MetricsPanel() {
             </h3>
             <div className="overflow-x-auto pb-8">
               <div className="min-w-[800px] h-48 flex items-end gap-2">
-                {metrics.hourlyChart.length === 0 ? (
+                {derived.hourlyChart.length === 0 ? (
                   <div className="w-full flex items-center justify-center text-sm text-zinc-500">
                     No hourly data available
                   </div>
                 ) : (
-                  metrics.hourlyChart.reverse().map((point, idx) => {
+                  derived.hourlyChart
+                    .slice()
+                    .reverse()
+                    .map((point, idx) => {
                     const maxValue = Math.max(
-                      ...metrics.hourlyChart.map((p) =>
+                      ...derived.hourlyChart.map((p) =>
                         Math.abs(p.total_energy)
                       )
                     );
@@ -219,14 +248,14 @@ export default function MetricsPanel() {
             </h3>
             <div className="overflow-x-auto pb-4">
               <div className="min-w-[600px] h-48 flex items-end gap-2">
-                {metrics.dailyChart.length === 0 ? (
+                {derived.dailyChart.length === 0 ? (
                   <div className="w-full flex items-center justify-center text-sm text-zinc-500">
                     No daily data available
                   </div>
                 ) : (
-                  metrics.dailyChart.map((point, idx) => {
+                  derived.dailyChart.map((point, idx) => {
                     const maxValue = Math.max(
-                      ...metrics.dailyChart.map((p) => Math.abs(p.total_energy))
+                      ...derived.dailyChart.map((p) => Math.abs(p.total_energy))
                     );
                     const height =
                       (Math.abs(point.total_energy) / maxValue) * 100;

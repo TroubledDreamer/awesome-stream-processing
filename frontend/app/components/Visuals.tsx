@@ -1,30 +1,15 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useEnergyStream } from "@/lib/useEnergyStream";
+import { ConsumptionChart } from "./ConsumptionChart";
 
 type TimePoint = { label: string; consumption: number; production: number };
 type Count = { label: string; value: number };
-
-function linePath(
-  points: TimePoint[],
-  key: "consumption" | "production",
-  width: number,
-  height: number
-) {
-  const max = Math.max(
-    ...points.map((p) => Math.max(p.consumption, p.production))
-  );
-  const min = Math.min(
-    ...points.map((p) => Math.min(p.consumption, p.production))
-  );
-  const range = max - min || 1;
-  return points
-    .map((p, idx) => {
-      const x = (idx / (points.length - 1 || 1)) * width;
-      const y = height - ((p[key] - min) / range) * height;
-      return `${x},${y}`;
-    })
-    .join(" ");
-}
+type BillsData = { tiered: any[]; tou: any[] };
+type VisualsProps = {
+  selectedHousehold?: string | null;
+  contextLabel?: string;
+};
 
 function Donut({ data }: { data: Count[] }) {
   const total = data.reduce((acc, d) => acc + d.value, 0) || 1;
@@ -105,263 +90,151 @@ function BarList({
   );
 }
 
-export default function Visuals() {
-  const [timeSeries, setTimeSeries] = useState<TimePoint[]>([]);
-  const [topHouseholds, setTopHouseholds] = useState<Count[]>([]);
-  const [billingImpact, setBillingImpact] = useState<Count[]>([]);
-  const [pricePlanBreakdown, setPricePlanBreakdown] = useState<Count[]>([]);
-  const [planPerformance, setPlanPerformance] = useState<
-    Array<{ label: string; consumption: number; production: number }>
-  >([]);
-  const [loading, setLoading] = useState(true);
+export default function Visuals({ contextLabel }: VisualsProps) {
+  const { energy, connected, messageCount } = useEnergyStream(120);
+  const [bills, setBills] = useState<BillsData>({ tiered: [], tou: [] });
+  const [loadingBills, setLoadingBills] = useState(true);
 
   useEffect(() => {
-    // Add WebSocket connection for real-time updates
-    const WS_URL = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8080";
-    let ws: WebSocket | null = null;
+    let cancelled = false;
 
-    const connectWebSocket = () => {
-      console.log("[Visuals] Connecting to WebSocket:", WS_URL);
-      ws = new WebSocket(WS_URL);
-
-      ws.onopen = () => {
-        console.log("[Visuals] WebSocket connected");
-        // No subscription needed - server broadcasts to all clients
-      };
-
-      ws.onmessage = (event) => {
-        console.log("[Visuals] Raw WebSocket message:", event.data);
-        try {
-          const msg = JSON.parse(event.data);
-          console.log("[Visuals] Parsed WebSocket data:", msg);
-          
-          if (msg?.type === "energy_update" && msg.data) {
-            console.log("[Visuals] Energy update received:", msg.data);
-            
-            // Update time series from WebSocket data
-            if (msg.data.timeSeries) {
-              console.log("[Visuals] TimeSeries data received:", msg.data.timeSeries.length, "points");
-              console.log("[Visuals] Sample point:", msg.data.timeSeries[0]);
-              
-              const series: TimePoint[] = msg.data.timeSeries
-                .slice(0, 7)
-                .reverse()
-                .map((row: any) => {
-                  const time = new Date(row.window_end);
-                  return {
-                    label: time.toLocaleTimeString("en-US", {
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    }),
-                    consumption: row.energy_consumed || 0,
-                    production: row.energy_produced || 0,
-                  };
-                });
-              
-              console.log("[Visuals] Setting WebSocket time series:", series);
-              setTimeSeries(series);
-            }
-            
-            // Update top households from WebSocket data
-            if (msg.data.totals) {
-              const topMeters = msg.data.totals
-                .sort((a: any, b: any) => b.total_consumed - a.total_consumed)
-                .slice(0, 5)
-                .map((row: any) => ({
-                  label: String(row.meter_id),
-                  value: Math.round(row.total_consumed * 10) / 10,
-                }));
-              
-              console.log("[Visuals] Setting WebSocket top households:", topMeters);
-              setTopHouseholds(topMeters);
-            }
-          } else if (msg?.type === "ping") {
-            // Ignore heartbeat
-            return;
-          }
-        } catch (err) {
-          console.error("[Visuals] WebSocket parse error:", err);
-        }
-      };
-
-      ws.onerror = (err) => {
-        console.error("[Visuals] WebSocket error:", err);
-      };
-
-      ws.onclose = () => {
-        console.log("[Visuals] WebSocket closed, will reconnect...");
-        setTimeout(connectWebSocket, 2000);
-      };
-    };
-
-    const fetchData = async () => {
+    const fetchBills = async () => {
       try {
-        console.log("[Visuals] Fetching REST API data...");
-        const [energyRes, billsRes] = await Promise.all([
-          fetch("/api/energy"),
-          fetch("/api/bills"),
-        ]);
-
-        const energyData = await energyRes.json();
-        const billsData = await billsRes.json();
-        
-        console.log("[Visuals] REST API energyData:", energyData);
-        console.log("[Visuals] REST API billsData:", billsData);
-
-        // Build time series from API data
-        const series: TimePoint[] = (energyData.timeSeries || [])
-          .slice(0, 7)
-          .reverse()
-          .map((row: any) => {
-            const time = new Date(row.window_end);
-            return {
-              label: time.toLocaleTimeString("en-US", {
-                hour: "2-digit",
-                minute: "2-digit",
-              }),
-              consumption: row.energy_consumed || 0,
-              production: row.energy_produced || 0,
-            };
+        const res = await fetch("/api/bills");
+        const billsData = await res.json();
+        if (!cancelled) {
+          setBills({
+            tiered: billsData.tiered || [],
+            tou: billsData.tou || [],
           });
-        setTimeSeries(series);
-
-        // Top households by consumption from aggregated totals
-        const topMeters = (energyData.totals || [])
-          .sort((a: any, b: any) => b.total_consumed - a.total_consumed)
-          .slice(0, 5)
-          .map((row: any) => ({
-            label: String(row.meter_id),
-            value: Math.round(row.total_consumed * 10) / 10,
-          }));
-        setTopHouseholds(topMeters);
-
-        // Billing impact
-        const allBills = [
-          ...(billsData.tiered || []),
-          ...(billsData.tou || []),
-        ];
-        const topBills = allBills
-          .sort(
-            (a: any, b: any) =>
-              (b.current_bill || b.monthly_cost || 0) -
-              (a.current_bill || a.monthly_cost || 0)
-          )
-          .slice(0, 5)
-          .map((row: any) => ({
-            label: String(row.meter_id),
-            value:
-              Math.round((row.current_bill || row.monthly_cost || 0) * 100) /
-              100,
-          }));
-        setBillingImpact(topBills);
-
-        // Price plan breakdown - count unique meters
-        const uniqueTiered = new Set(
-          billsData.tiered?.map((r: any) => r.meter_id) || []
-        );
-        const uniqueTou = new Set(
-          billsData.tou?.map((r: any) => r.meter_id) || []
-        );
-        setPricePlanBreakdown([
-          { label: "Tier", value: uniqueTiered.size },
-          { label: "Time of Use", value: uniqueTou.size },
-        ]);
-
-        // Plan Performance - calculate avg consumption/production by plan type
-        const tieredMeters = new Set(
-          billsData.tiered?.map((r: any) => r.meter_id) || []
-        );
-        const touMeters = new Set(
-          billsData.tou?.map((r: any) => r.meter_id) || []
-        );
-
-        const tieredTotals = (energyData.totals || [])
-          .filter((r: any) => tieredMeters.has(r.meter_id))
-          .reduce(
-            (acc: any, r: any) => ({
-              consumption: acc.consumption + (r.total_consumed || 0),
-              production: acc.production + (r.total_produced || 0),
-              count: acc.count + 1,
-            }),
-            { consumption: 0, production: 0, count: 0 }
-          );
-
-        const touTotals = (energyData.totals || [])
-          .filter((r: any) => touMeters.has(r.meter_id))
-          .reduce(
-            (acc: any, r: any) => ({
-              consumption: acc.consumption + (r.total_consumed || 0),
-              production: acc.production + (r.total_produced || 0),
-              count: acc.count + 1,
-            }),
-            { consumption: 0, production: 0, count: 0 }
-          );
-
-        setPlanPerformance([
-          {
-            label: "Tier",
-            consumption:
-              tieredTotals.count > 0
-                ? Math.round(
-                    (tieredTotals.consumption / tieredTotals.count) * 10
-                  ) / 10
-                : 0,
-            production:
-              tieredTotals.count > 0
-                ? Math.round(
-                    (tieredTotals.production / tieredTotals.count) * 10
-                  ) / 10
-                : 0,
-          },
-          {
-            label: "Time of Use",
-            consumption:
-              touTotals.count > 0
-                ? Math.round((touTotals.consumption / touTotals.count) * 10) /
-                  10
-                : 0,
-            production:
-              touTotals.count > 0
-                ? Math.round((touTotals.production / touTotals.count) * 10) / 10
-                : 0,
-          },
-        ]);
-
-        console.log("Time series data:", series);
-        console.log("Time series length:", series.length);
-        if (series.length > 0) {
-          console.log("Sample data point:", series[0]);
-          console.log(
-            "Consumption range:",
-            Math.min(...series.map((s) => s.consumption)),
-            "-",
-            Math.max(...series.map((s) => s.consumption))
-          );
-          console.log(
-            "Production range:",
-            Math.min(...series.map((s) => s.production)),
-            "-",
-            Math.max(...series.map((s) => s.production))
-          );
+          setLoadingBills(false);
         }
-
-        setLoading(false);
       } catch (error) {
-        console.error("Failed to fetch visuals data:", error);
-        setLoading(false);
+        if (!cancelled) setLoadingBills(false);
+        // eslint-disable-next-line no-console
+        console.error("Failed to fetch bills data:", error);
       }
     };
 
-    // Start both WebSocket and REST API fetching
-    connectWebSocket();
-    fetchData();
-    const interval = setInterval(fetchData, 5000);
-    
+    fetchBills();
+    const interval = setInterval(fetchBills, 15000);
     return () => {
+      cancelled = true;
       clearInterval(interval);
-      ws?.close();
     };
   }, []);
+
+  const totals = energy?.totals || [];
+  const rawSeries = energy?.timeSeries || [];
+
+  const timeSeries = useMemo<TimePoint[]>(
+    () =>
+      rawSeries
+        .slice(0, 20)
+        .reverse()
+        .map((row: any) => {
+          const time = new Date(row.window_end);
+          return {
+            label: time.toLocaleTimeString("en-US", {
+              hour: "2-digit",
+              minute: "2-digit",
+            }),
+            consumption: Number(row.energy_consumed || 0),
+            production: Number(row.energy_produced || 0),
+          };
+        }),
+    [rawSeries]
+  );
+
+  const topHouseholds = useMemo<Count[]>(
+    () =>
+      totals
+        .slice()
+        .sort((a: any, b: any) => (b.total_consumed || 0) - (a.total_consumed || 0))
+        .slice(0, 5)
+        .map((row: any) => ({
+          label: String(row.meter_id),
+          value: Math.round(Number(row.total_consumed || 0) * 10) / 10,
+        })),
+    [totals]
+  );
+
+  const pricePlanBreakdown = useMemo<Count[]>(() => {
+    const uniqueTiered = new Set(bills.tiered.map((r: any) => r.meter_id));
+    const uniqueTou = new Set(bills.tou.map((r: any) => r.meter_id));
+    return [
+      { label: "Tier", value: uniqueTiered.size },
+      { label: "Time of Use", value: uniqueTou.size },
+    ];
+  }, [bills]);
+
+  const planPerformance = useMemo(
+    () => {
+      const tieredMeters = new Set(bills.tiered.map((r: any) => r.meter_id));
+      const touMeters = new Set(bills.tou.map((r: any) => r.meter_id));
+
+      const aggregate = (meterSet: Set<any>) =>
+        totals
+          .filter((r: any) => meterSet.has(r.meter_id))
+          .reduce(
+            (acc: any, r: any) => ({
+              consumption: acc.consumption + Number(r.total_consumed || 0),
+              production: acc.production + Number(r.total_produced || 0),
+              count: acc.count + 1,
+            }),
+            { consumption: 0, production: 0, count: 0 }
+          );
+
+      const tieredTotals = aggregate(tieredMeters);
+      const touTotals = aggregate(touMeters);
+
+      return [
+        {
+          label: "Tier",
+          consumption:
+            tieredTotals.count > 0
+              ? Math.round((tieredTotals.consumption / tieredTotals.count) * 10) /
+                10
+              : 0,
+          production:
+            tieredTotals.count > 0
+              ? Math.round((tieredTotals.production / tieredTotals.count) * 10) /
+                10
+              : 0,
+        },
+        {
+          label: "Time of Use",
+          consumption:
+            touTotals.count > 0
+              ? Math.round((touTotals.consumption / touTotals.count) * 10) / 10
+              : 0,
+          production:
+            touTotals.count > 0
+              ? Math.round((touTotals.production / touTotals.count) * 10) / 10
+              : 0,
+        },
+      ];
+    },
+    [bills, totals]
+  );
+
+  const billingImpact = useMemo<Count[]>(() => {
+    const allBills = [...bills.tiered, ...bills.tou];
+    return allBills
+      .slice()
+      .sort(
+        (a: any, b: any) =>
+          Number(b.current_bill || b.monthly_cost || 0) -
+          Number(a.current_bill || a.monthly_cost || 0)
+      )
+      .slice(0, 7)
+      .map((row: any) => ({
+        label: String(row.meter_id),
+        value:
+          Math.round(Number(row.current_bill || row.monthly_cost || 0) * 100) /
+          100,
+      }));
+  }, [bills]);
 
   const netFlow = timeSeries.map((p) => ({
     label: p.label,
@@ -376,13 +249,9 @@ export default function Visuals() {
     { label: "North Haverbrook", value: 5 },
   ];
 
-  const consumptionPath = timeSeries.length
-    ? linePath(timeSeries, "consumption", 300, 140)
-    : "";
-  const productionPath = timeSeries.length
-    ? linePath(timeSeries, "production", 300, 140)
-    : "";
   const netMax = Math.max(...netFlow.map((n) => Math.abs(n.value)), 1);
+
+  const loading = loadingBills && !totals.length && !rawSeries.length;
 
   if (loading) {
     return (
@@ -397,112 +266,9 @@ export default function Visuals() {
   return (
     <section className="mx-auto w-full max-w-screen-2xl px-6 pb-8">
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        <div className="col-span-1 rounded-2xl border border-[#dbe5f0] bg-white px-5 py-5 text-[#0b1b33] shadow-[0_18px_50px_-24px_rgba(11,27,51,0.35)]">
-          <div className="flex items-center justify-between">
-            <h2 className="text-lg font-semibold">Price Plan Mix</h2>
-            <span className="text-xs text-[#4a5568]">Households</span>
-          </div>
-          <div className="mt-4 flex items-center gap-4">
-            <Donut data={pricePlanBreakdown} />
-            <div className="space-y-3 text-sm text-[#0b1b33]">
-              {pricePlanBreakdown.map((d, idx) => (
-                <div key={d.label} className="flex items-center gap-3">
-                  <span
-                    className="h-3 w-3 rounded-full"
-                    style={{
-                      background: ["#0b6b6b", "#0f3a4f", "#0b1b33", "#0c777a"][
-                        idx % 4
-                      ],
-                    }}
-                  />
-                  <div className="flex items-center gap-2">
-                    <span className="font-medium">{d.label}</span>
-                    <span className="text-xs text-[#4a5568]">{d.value}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
 
-        <div className="col-span-1 lg:col-span-2 rounded-2xl border border-[#dbe5f0] bg-white px-5 py-5 text-[#0b1b33] shadow-[0_18px_50px_-24px_rgba(11,27,51,0.35)]">
-          <div className="flex items-center justify-between">
-            <h2 className="text-lg font-semibold">Consumption vs Production</h2>
-            <span className="text-xs text-[#4a5568]">Live from RisingWave</span>
-          </div>
-          <div className="mt-4">
-            {timeSeries.length === 0 ? (
-              <div className="h-48 flex items-center justify-center text-sm text-zinc-500">
-                No time series data available (waiting for data to
-                accumulate...)
-              </div>
-            ) : (
-              <>
-                <svg viewBox="0 0 320 180" className="h-48 w-full">
-                  <defs>
-                    <linearGradient
-                      id="consumptionGradient"
-                      x1="0"
-                      x2="0"
-                      y1="0"
-                      y2="1"
-                    >
-                      <stop offset="0%" stopColor="#0b6b6b" stopOpacity="0.3" />
-                      <stop offset="100%" stopColor="#0b6b6b" stopOpacity="0" />
-                    </linearGradient>
-                    <linearGradient
-                      id="productionGradient"
-                      x1="0"
-                      x2="0"
-                      y1="0"
-                      y2="1"
-                    >
-                      <stop
-                        offset="0%"
-                        stopColor="#0f3a4f"
-                        stopOpacity="0.25"
-                      />
-                      <stop offset="100%" stopColor="#0f3a4f" stopOpacity="0" />
-                    </linearGradient>
-                  </defs>
-                  {consumptionPath && (
-                    <polyline
-                      fill="none"
-                      stroke="#0b6b6b"
-                      strokeWidth="2.5"
-                      strokeLinejoin="round"
-                      strokeLinecap="round"
-                      points={consumptionPath}
-                    />
-                  )}
-                  {productionPath && (
-                    <polyline
-                      fill="none"
-                      stroke="#0f3a4f"
-                      strokeWidth="2.5"
-                      strokeLinejoin="round"
-                      strokeLinecap="round"
-                      points={productionPath}
-                    />
-                  )}
-                </svg>
-                <div className="mt-2 flex items-center gap-4 text-xs text-[#4a5568]">
-                  <div className="flex items-center gap-2">
-                    <span className="h-3 w-3 rounded-full bg-[#0b6b6b]" />
-                    Consumption
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="h-3 w-3 rounded-full bg-[#0f3a4f]" />
-                    Production
-                  </div>
-                  <span className="ml-auto text-xs">
-                    {timeSeries.length} data points
-                  </span>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
+
+        <ConsumptionChart timeSeries={timeSeries} />
 
         <div className="rounded-2xl border border-[#dbe5f0] bg-white px-5 py-5 text-[#0b1b33] shadow-[0_18px_50px_-24px_rgba(11,27,51,0.35)]">
           <div className="flex items-center justify-between">
@@ -642,6 +408,9 @@ export default function Visuals() {
             <BarList data={cityCounts} color="#0b1b33" />
           </div>
         </div>
+      </div>
+      <div className="mt-3 text-xs text-[#4a5568]">
+        {contextLabel || "All households"} • {connected ? "Live via WebSocket" : "Reconnecting to WebSocket"} • Messages received: {messageCount}
       </div>
     </section>
   );
