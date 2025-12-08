@@ -106,7 +106,10 @@ export default function MetricsPanel() {
         <>
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
             {/* Current Time in Simulation */}
-            <div className="rounded-2xl border border-[#dbe5f0] bg-white px-5 py-5 text-[#0b1b33] shadow-[0_18px_50px_-24px_rgba(11,27,51,0.35)]">
+            <div
+              className="rounded-2xl border border-[#dbe5f0] bg-white px-5 py-5 text-[#0b1b33] shadow-[0_18px_50px_-24px_rgba(11,27,51,0.35)]"
+              title="Latest simulated timestamp"
+            >
               <h3 className="text-sm font-medium text-[#4a5568] mb-2">
                 Current Time in Simulation
               </h3>
@@ -116,7 +119,10 @@ export default function MetricsPanel() {
             </div>
 
             {/* Net Consumption This Hour */}
-            <div className="rounded-2xl border border-[#dbe5f0] bg-white px-5 py-5 text-[#0b1b33] shadow-[0_18px_50px_-24px_rgba(11,27,51,0.35)]">
+            <div
+              className="rounded-2xl border border-[#dbe5f0] bg-white px-5 py-5 text-[#0b1b33] shadow-[0_18px_50px_-24px_rgba(11,27,51,0.35)]"
+              title="Net consumption accumulated in the current hour"
+            >
               <h3 className="text-sm font-medium text-[#4a5568] mb-2">
                 Net Consumption This Hour
               </h3>
@@ -132,7 +138,10 @@ export default function MetricsPanel() {
             </div>
 
             {/* Net Consumption This Day */}
-            <div className="rounded-2xl border border-[#dbe5f0] bg-white px-5 py-5 text-[#0b1b33] shadow-[0_18px_50px_-24px_rgba(11,27,51,0.35)]">
+            <div
+              className="rounded-2xl border border-[#dbe5f0] bg-white px-5 py-5 text-[#0b1b33] shadow-[0_18px_50px_-24px_rgba(11,27,51,0.35)]"
+              title="Net consumption accumulated today"
+            >
               <h3 className="text-sm font-medium text-[#4a5568] mb-2">
                 Net Consumption This Day
               </h3>
@@ -145,7 +154,10 @@ export default function MetricsPanel() {
             </div>
 
             {/* Net Consumption This Month */}
-            <div className="rounded-2xl border border-[#dbe5f0] bg-white px-5 py-5 text-[#0b1b33] shadow-[0_18px_50px_-24px_rgba(11,27,51,0.35)]">
+            <div
+              className="rounded-2xl border border-[#dbe5f0] bg-white px-5 py-5 text-[#0b1b33] shadow-[0_18px_50px_-24px_rgba(11,27,51,0.35)]"
+              title="Net energy consumption accumulated this month"
+            >
               <h3 className="text-sm font-medium text-[#4a5568] mb-2">
                 Net Energy Consumption This Month
               </h3>
@@ -161,7 +173,10 @@ export default function MetricsPanel() {
             </div>
 
             {/* Average Per Day */}
-            <div className="rounded-2xl border border-[#dbe5f0] bg-white px-5 py-5 text-[#0b1b33] shadow-[0_18px_50px_-24px_rgba(11,27,51,0.35)]">
+            <div
+              className="rounded-2xl border border-[#dbe5f0] bg-white px-5 py-5 text-[#0b1b33] shadow-[0_18px_50px_-24px_rgba(11,27,51,0.35)]"
+              title="Average daily consumption for the current month"
+            >
               <h3 className="text-sm font-medium text-[#4a5568] mb-2">
                 Average Energy Consumption per Day
               </h3>
@@ -174,7 +189,10 @@ export default function MetricsPanel() {
             </div>
 
             {/* Average Per Hour */}
-            <div className="rounded-2xl border border-[#dbe5f0] bg-white px-5 py-5 text-[#0b1b33] shadow-[0_18px_50px_-24px_rgba(11,27,51,0.35)]">
+            <div
+              className="rounded-2xl border border-[#dbe5f0] bg-white px-5 py-5 text-[#0b1b33] shadow-[0_18px_50px_-24px_rgba(11,27,51,0.35)]"
+              title="Average hourly consumption for today"
+            >
               <h3 className="text-sm font-medium text-[#4a5568] mb-2">
                 Average Energy Consumption per Hour
               </h3>
@@ -186,7 +204,10 @@ export default function MetricsPanel() {
           </div>
 
           {/* Hourly Chart */}
-          <div className="mt-6 rounded-2xl border border-[#dbe5f0] bg-white px-5 py-5 text-[#0b1b33] shadow-[0_18px_50px_-24px_rgba(11,27,51,0.35)]">
+          <div
+            className="mt-6 rounded-2xl border border-[#dbe5f0] bg-white px-5 py-5 text-[#0b1b33] shadow-[0_18px_50px_-24px_rgba(11,27,51,0.35)]"
+            title="Last 24 hours of hourly consumption"
+          >
             <h3 className="text-lg font-semibold mb-4">
               Hourly Energy Consumption (Last 24 Hours)
             </h3>
@@ -242,7 +263,10 @@ export default function MetricsPanel() {
           </div>
 
           {/* Daily Chart */}
-          <div className="mt-6 rounded-2xl border border-[#dbe5f0] bg-white px-5 py-5 text-[#0b1b33] shadow-[0_18px_50px_-24px_rgba(11,27,51,0.35)]">
+          <div
+            className="mt-6 rounded-2xl border border-[#dbe5f0] bg-white px-5 py-5 text-[#0b1b33] shadow-[0_18px_50px_-24px_rgba(11,27,51,0.35)]"
+            title="Daily consumption totals for the current month"
+          >
             <h3 className="text-lg font-semibold mb-4">
               Net Energy Consumption per Day (This Month)
             </h3>

@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 type EnergyData = {
   totals: any[];
   timeSeries: any[];
+  bills?: { tiered: any[]; tou: any[] };
 };
 
 type EnergyStream = {
@@ -18,7 +19,7 @@ type EnergyStream = {
 // latest payload in React state. It also falls back to /api/energy for an
 // initial snapshot.
 export function useEnergyStream(throttleMs = 150): EnergyStream {
-  const [energy, setEnergy] = useState<EnergyData>({ totals: [], timeSeries: [] });
+  const [energy, setEnergy] = useState<EnergyData>({ totals: [], timeSeries: [], bills: undefined });
   const [connected, setConnected] = useState(false);
   const [lastMessageTs, setLastMessageTs] = useState<number | null>(null);
   const [messageCount, setMessageCount] = useState(0);
@@ -42,10 +43,12 @@ export function useEnergyStream(throttleMs = 150): EnergyStream {
       const data = payload?.data ?? payload;
       const totalsCandidate = data?.totals ?? (Array.isArray(data) ? data : undefined);
       const timeSeriesCandidate = data?.timeSeries;
+      const billsCandidate = data?.bills;
 
       setEnergy((prev) => ({
         totals: Array.isArray(totalsCandidate) ? totalsCandidate : prev.totals,
         timeSeries: Array.isArray(timeSeriesCandidate) ? timeSeriesCandidate : prev.timeSeries,
+        bills: billsCandidate || prev.bills,
       }));
       setLastMessageTs(now);
     };

@@ -35,6 +35,50 @@ function addVariance(baseValue: number, variancePercent: number = 15): number {
 // Broadcast function
 async function broadcastEnergyData() {
     try {
+        // Fetch bills (tiered + TOU) with short cache to avoid hammering DB
+        const fetchBills = async () => {
+            const cachedBills = await redis.get('current_bills');
+            if (cachedBills) return JSON.parse(cachedBills);
+
+            const tieredQuery = await pool.query(`
+                SELECT 
+                    cb.meter_id,
+                    c.address,
+                    cb.current_bill,
+                    epm.total_energy as current_energy_consumed,
+                    ec.estimated_total_bill,
+                    ec.estimated_total_energy,
+                    cb.month
+                FROM current_bill_tiered cb
+                LEFT JOIN customers c ON cb.meter_id = c.meter_id
+                LEFT JOIN energy_per_month epm ON cb.meter_id = epm.meter_id AND cb.month = epm.month
+                LEFT JOIN estimated_tier_cost ec ON cb.meter_id = ec.meter_id AND cb.month = ec.month
+                ORDER BY cb.month DESC, cb.meter_id
+                LIMIT 50
+            `);
+
+            const touQuery = await pool.query(`
+                SELECT 
+                    cb.meter_id,
+                    c.address,
+                    cb.monthly_cost,
+                    epm.total_energy as current_energy_consumed,
+                    ec.estimated_monthly_bill,
+                    ec.estimated_total_energy,
+                    cb.month
+                FROM current_bill_tou cb
+                LEFT JOIN customers c ON cb.meter_id = c.meter_id
+                LEFT JOIN energy_per_month epm ON cb.meter_id = epm.meter_id AND cb.month = epm.month
+                LEFT JOIN estimated_tou_cost ec ON cb.meter_id = ec.meter_id AND cb.month = ec.month
+                ORDER BY cb.month DESC, cb.meter_id
+                LIMIT 50
+            `);
+
+            const bills = { tiered: tieredQuery.rows, tou: touQuery.rows };
+            await redis.setex('current_bills', 1, JSON.stringify(bills));
+            return bills;
+        };
+
         // Try Redis cache first
         const cached = await redis.get('energy_data');
         let data;
@@ -90,9 +134,20 @@ async function broadcastEnergyData() {
                 total_energy: addVariance(parseFloat(row.total_energy), 30)
             }));
 
-            data = { totals: totalsWithVariance, timeSeries: timeSeriesWithVariance };
+            const bills = await fetchBills();
+
+            data = { totals: totalsWithVariance, timeSeries: timeSeriesWithVariance, bills };
             // Cache for 1 second to reduce DB pressure while allowing frequent broadcasts
             await redis.setex('energy_data', 1, JSON.stringify(data));
+        }
+
+        // Always refresh bills even when energy_data is cached for 1s, to surface bill deltas fast
+        if (!data.bills) {
+            try {
+                data.bills = await fetchBills();
+            } catch (err) {
+                console.error('Error fetching bills for broadcast:', err);
+            }
         }
 
         // Broadcast to all clients

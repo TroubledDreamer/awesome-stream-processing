@@ -47,9 +47,10 @@ function linePath(
 
 type ConsumptionChartProps = {
   timeSeries: TimePoint[];
+  tooltip?: string;
 };
 
-export function ConsumptionChart({ timeSeries }: ConsumptionChartProps) {
+export function ConsumptionChart({ timeSeries, tooltip }: ConsumptionChartProps) {
   const allRanges: Range[] = ["1h", "3h", "6h", "12h", "24h", "all"];
   const [rangeIdx, setRangeIdx] = useState(0);
   const [showAverage, setShowAverage] = useState(false);
@@ -89,7 +90,10 @@ export function ConsumptionChart({ timeSeries }: ConsumptionChartProps) {
   }, [series.length]);
 
   return (
-    <div className="col-span-1 lg:col-span-2 rounded-2xl border border-[#dbe5f0] bg-white px-5 py-5 text-[#0b1b33] shadow-[0_18px_50px_-24px_rgba(11,27,51,0.35)]">
+    <div
+      className="col-span-1 lg:col-span-2 rounded-2xl border border-[#dbe5f0] bg-white px-5 py-5 text-[#0b1b33] shadow-[0_18px_50px_-24px_rgba(11,27,51,0.35)]"
+      title={tooltip || "Live consumption vs production over time"}
+    >
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-semibold">Consumption vs Production</h2>
         <div className="flex items-center gap-3 text-xs text-[#4a5568]">

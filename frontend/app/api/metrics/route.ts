@@ -120,6 +120,9 @@ export async function GET() {
             dailyChart: dailyChartQuery.rows
         };
 
+        // Quick visibility for simulated time coming off RisingWave
+        console.log("[metrics] simulated time:", data.currentTime);
+
         await redis.setex('metrics', CACHE_TTL, JSON.stringify(data));
 
         return NextResponse.json(data);

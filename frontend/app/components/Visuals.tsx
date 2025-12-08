@@ -11,49 +11,6 @@ type VisualsProps = {
   contextLabel?: string;
 };
 
-function Donut({ data }: { data: Count[] }) {
-  const total = data.reduce((acc, d) => acc + d.value, 0) || 1;
-  const colors = ["#0b6b6b", "#0f3a4f", "#0b1b33", "#0c777a"];
-  const slices = data.reduce<
-    { start: number; value: number; label: string; color: string }[]
-  >((acc, slice, idx) => {
-    const value = (slice.value / total) * 100;
-    const start = idx === 0 ? 0 : acc[idx - 1].start + acc[idx - 1].value;
-    acc.push({
-      start,
-      value,
-      label: slice.label,
-      color: colors[idx % colors.length],
-    });
-    return acc;
-  }, []);
-  return (
-    <div className="relative h-40 w-40">
-      <svg viewBox="0 0 42 42" className="h-40 w-40 -rotate-90">
-        {slices.map((slice) => (
-          <circle
-            key={slice.label}
-            cx="21"
-            cy="21"
-            r="15.915"
-            fill="transparent"
-            stroke={slice.color}
-            strokeWidth="6"
-            strokeDasharray={`${slice.value} ${100 - slice.value}`}
-            strokeDashoffset={-slice.start}
-          />
-        ))}
-      </svg>
-      <div className="absolute inset-0 flex items-center justify-center">
-        <div className="text-center text-sm text-[#0b1b33]">
-          <p className="font-semibold text-lg">{total}</p>
-          <p className="text-xs text-[#4a5568]">Households</p>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function BarList({
   data,
   color = "#0b6b6b",
@@ -91,14 +48,23 @@ function BarList({
 }
 
 export default function Visuals({ contextLabel }: VisualsProps) {
-  const { energy, connected, messageCount } = useEnergyStream(120);
+  const { energy, connected, messageCount, lastMessageTs } = useEnergyStream(120);
   const [bills, setBills] = useState<BillsData>({ tiered: [], tou: [] });
   const [loadingBills, setLoadingBills] = useState(true);
 
+  // Pull bills straight from the WebSocket stream; fallback to one fetch if absent
   useEffect(() => {
-    let cancelled = false;
+    if (energy?.bills) {
+      setBills({
+        tiered: energy.bills.tiered || [],
+        tou: energy.bills.tou || [],
+      });
+      setLoadingBills(false);
+      return;
+    }
 
-    const fetchBills = async () => {
+    let cancelled = false;
+    const fetchOnce = async () => {
       try {
         const res = await fetch("/api/bills");
         const billsData = await res.json();
@@ -116,16 +82,23 @@ export default function Visuals({ contextLabel }: VisualsProps) {
       }
     };
 
-    fetchBills();
-    const interval = setInterval(fetchBills, 15000);
+    fetchOnce();
     return () => {
       cancelled = true;
-      clearInterval(interval);
     };
-  }, []);
+  }, [energy?.bills]);
 
   const totals = energy?.totals || [];
   const rawSeries = energy?.timeSeries || [];
+
+  const latestSimTime = useMemo(() => {
+    const ts = rawSeries[0]?.window_end;
+    return ts ? new Date(ts) : null;
+  }, [rawSeries]);
+
+  const latestHeartbeat = useMemo(() => {
+    return lastMessageTs ? new Date(lastMessageTs) : null;
+  }, [lastMessageTs]);
 
   const timeSeries = useMemo<TimePoint[]>(
     () =>
@@ -158,15 +131,6 @@ export default function Visuals({ contextLabel }: VisualsProps) {
         })),
     [totals]
   );
-
-  const pricePlanBreakdown = useMemo<Count[]>(() => {
-    const uniqueTiered = new Set(bills.tiered.map((r: any) => r.meter_id));
-    const uniqueTou = new Set(bills.tou.map((r: any) => r.meter_id));
-    return [
-      { label: "Tier", value: uniqueTiered.size },
-      { label: "Time of Use", value: uniqueTou.size },
-    ];
-  }, [bills]);
 
   const planPerformance = useMemo(
     () => {
@@ -236,6 +200,40 @@ export default function Visuals({ contextLabel }: VisualsProps) {
       }));
   }, [bills]);
 
+  const planCostStats = useMemo(() => {
+    const avg = (arr: any[], key: string) =>
+      arr.length > 0
+        ? arr.reduce((sum, r) => sum + Number(r[key] || 0), 0) / arr.length
+        : 0;
+
+    const tierCurrent = avg(bills.tiered, "current_bill");
+    const tierEst = avg(bills.tiered, "estimated_total_bill");
+    const touCurrent = avg(bills.tou, "monthly_cost");
+    const touEst = avg(bills.tou, "estimated_monthly_bill");
+
+    const stats = [
+      {
+        label: "Tier",
+        current: tierCurrent,
+        estimated: tierEst,
+        deltaPct: tierCurrent
+          ? Number((((tierEst - tierCurrent) / Math.abs(tierCurrent)) * 100).toFixed(1))
+          : 0,
+      },
+      {
+        label: "Time of Use",
+        current: touCurrent,
+        estimated: touEst,
+        deltaPct: touCurrent
+          ? Number((((touEst - touCurrent) / Math.abs(touCurrent)) * 100).toFixed(1))
+          : 0,
+      },
+    ];
+
+    const cheapest = stats.reduce((best, s) => (s.current < best.current ? s : best), stats[0]);
+    return { stats, cheapestLabel: cheapest.label };
+  }, [bills]);
+
   const netFlow = timeSeries.map((p) => ({
     label: p.label,
     value: p.production - p.consumption,
@@ -266,11 +264,91 @@ export default function Visuals({ contextLabel }: VisualsProps) {
   return (
     <section className="mx-auto w-full max-w-screen-2xl px-6 pb-8">
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+        <div
+          className="col-span-1 rounded-2xl border border-[#dbe5f0] bg-white px-5 py-5 text-[#0b1b33] shadow-[0_18px_50px_-24px_rgba(11,27,51,0.35)]"
+          title="Average current vs estimated bills by plan"
+        >
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-semibold">Plan Cost Comparison</h2>
+            <span className="text-xs text-[#4a5568]">Cheapest: {planCostStats.cheapestLabel}</span>
+          </div>
+          <div className="mt-4 grid grid-cols-1 gap-3 text-sm">
+            {planCostStats.stats.map((p) => (
+              <div
+                key={p.label}
+                className="rounded-lg border border-[#e6edf5] bg-[#f7fbff] px-3 py-3"
+                title={`Current: $${p.current.toFixed(2)} • Estimated: $${p.estimated.toFixed(2)}`}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="font-medium">{p.label}</span>
+                  <span className={`text-xs font-semibold ${p.deltaPct <= 0 ? "text-[#0b6b6b]" : "text-red-500"}`}>
+                    {p.deltaPct >= 0 ? "+" : ""}{p.deltaPct}%
+                  </span>
+                </div>
+                <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-[#4a5568]">
+                  <div>
+                    <p className="text-[11px] uppercase tracking-wide">Current</p>
+                    <p className="text-base font-semibold text-[#0b1b33]">${p.current.toFixed(2)}</p>
+                  </div>
+                  <div>
+                    <p className="text-[11px] uppercase tracking-wide">Estimated</p>
+                    <p className="text-base font-semibold text-[#0b1b33]">${p.estimated.toFixed(2)}</p>
+                  </div>
+                </div>
+                <div className="mt-2 h-2 rounded-full bg-[#e6edf5]">
+                  <div
+                    className={`h-2 rounded-full ${p.deltaPct <= 0 ? "bg-[#0b6b6b]" : "bg-red-400"}`}
+                    style={{ width: `${Math.min(100, Math.abs(p.deltaPct))}%` }}
+                  />
+                </div>
+                <p className="mt-1 text-[11px] text-[#4a5568]">
+                  {p.deltaPct === 0
+                    ? "No change vs estimate"
+                    : p.deltaPct < 0
+                    ? `${Math.abs(p.deltaPct)}% under estimate`
+                    : `${p.deltaPct}% over estimate`}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
 
+        <ConsumptionChart
+          timeSeries={timeSeries}
+          tooltip="Live consumption vs production trend"
+        />
 
-        <ConsumptionChart timeSeries={timeSeries} />
+        <div
+          className="rounded-2xl border border-[#dbe5f0] bg-white px-5 py-5 text-[#0b1b33] shadow-[0_18px_50px_-24px_rgba(11,27,51,0.35)]"
+          title="Latest simulated timestamp from the stream"
+        >
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-semibold">Simulated Time</h2>
+            <span className="text-xs text-[#4a5568]">Live</span>
+          </div>
+          <div className="mt-4">
+            {latestSimTime ? (
+              <div className="space-y-2">
+                <div>
+                  <p className="text-sm text-[#4a5568]">Simulation</p>
+                  <p className="text-2xl font-semibold">{latestSimTime.toLocaleString()}</p>
+                  <p className="text-xs text-[#4a5568] mt-1">
+                    {latestSimTime.toLocaleDateString(undefined, { weekday: "long" })}
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <div className="h-16 flex items-center text-sm text-zinc-500">
+                Waiting for stream...
+              </div>
+            )}
+          </div>
+        </div>
 
-        <div className="rounded-2xl border border-[#dbe5f0] bg-white px-5 py-5 text-[#0b1b33] shadow-[0_18px_50px_-24px_rgba(11,27,51,0.35)]">
+        <div
+          className="rounded-2xl border border-[#dbe5f0] bg-white px-5 py-5 text-[#0b1b33] shadow-[0_18px_50px_-24px_rgba(11,27,51,0.35)]"
+          title="Net grid flow per interval (production minus consumption)"
+        >
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-semibold">Net Grid Flow</h2>
             <span className="text-xs text-[#4a5568]">
@@ -309,7 +387,10 @@ export default function Visuals({ contextLabel }: VisualsProps) {
           </div>
         </div>
 
-        <div className="rounded-2xl border border-[#dbe5f0] bg-white px-5 py-5 text-[#0b1b33] shadow-[0_18px_50px_-24px_rgba(11,27,51,0.35)]">
+        <div
+          className="rounded-2xl border border-[#dbe5f0] bg-white px-5 py-5 text-[#0b1b33] shadow-[0_18px_50px_-24px_rgba(11,27,51,0.35)]"
+          title="Top consuming households (live kWh)"
+        >
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-semibold">
               Top Households by Consumption
@@ -321,7 +402,10 @@ export default function Visuals({ contextLabel }: VisualsProps) {
           </div>
         </div>
 
-        <div className="rounded-2xl border border-[#dbe5f0] bg-white px-5 py-5 text-[#0b1b33] shadow-[0_18px_50px_-24px_rgba(11,27,51,0.35)]">
+        <div
+          className="rounded-2xl border border-[#dbe5f0] bg-white px-5 py-5 text-[#0b1b33] shadow-[0_18px_50px_-24px_rgba(11,27,51,0.35)]"
+          title="Average consumption vs production by plan type"
+        >
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-semibold">Plan Performance</h2>
             <span className="text-xs text-[#4a5568]">Avg kWh</span>
@@ -389,7 +473,10 @@ export default function Visuals({ contextLabel }: VisualsProps) {
           </div>
         </div>
 
-        <div className="rounded-2xl border border-[#dbe5f0] bg-white px-5 py-5 text-[#0b1b33] shadow-[0_18px_50px_-24px_rgba(11,27,51,0.35)]">
+        <div
+          className="rounded-2xl border border-[#dbe5f0] bg-white px-5 py-5 text-[#0b1b33] shadow-[0_18px_50px_-24px_rgba(11,27,51,0.35)]"
+          title="Highest current bills across households"
+        >
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-semibold">Billing Impact</h2>
             <span className="text-xs text-[#4a5568]">Live USD</span>
@@ -399,7 +486,10 @@ export default function Visuals({ contextLabel }: VisualsProps) {
           </div>
         </div>
 
-        <div className="rounded-2xl border border-[#dbe5f0] bg-white px-5 py-5 text-[#0b1b33] shadow-[0_18px_50px_-24px_rgba(11,27,51,0.35)]">
+        <div
+          className="rounded-2xl border border-[#dbe5f0] bg-white px-5 py-5 text-[#0b1b33] shadow-[0_18px_50px_-24px_rgba(11,27,51,0.35)]"
+          title="Household counts by city"
+        >
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-semibold">Households by City</h2>
             <span className="text-xs text-[#4a5568]">Count</span>
@@ -411,6 +501,7 @@ export default function Visuals({ contextLabel }: VisualsProps) {
       </div>
       <div className="mt-3 text-xs text-[#4a5568]">
         {contextLabel || "All households"} • {connected ? "Live via WebSocket" : "Reconnecting to WebSocket"} • Messages received: {messageCount}
+        {latestSimTime ? ` • Simulated time: ${latestSimTime.toLocaleString()}` : ""}
       </div>
     </section>
   );
