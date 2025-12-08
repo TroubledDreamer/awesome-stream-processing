@@ -7,10 +7,11 @@ export async function GET() {
     try {
         const cached = await redis.get('energy_data');
         if (cached) {
+           // console.log("Returning cached data:", JSON.parse(cached));
             return NextResponse.json(JSON.parse(cached));
         }
 
-        // Get aggregated totals per meter (like Grafana does)
+        // Get aggregated totals per meter
         const totalsQuery = await pool.query(`
             SELECT 
                 meter_id,
@@ -23,7 +24,10 @@ export async function GET() {
             ORDER BY meter_id
         `);
 
-        // Get time series data 
+       // console.log("Totals query result:", totalsQuery.rows);
+
+
+        // Get time-series data
         const timeSeriesQuery = await pool.query(`
             SELECT 
                 window_end,
@@ -37,6 +41,9 @@ export async function GET() {
             LIMIT 20
         `);
 
+        //console.log("Time series query result:", timeSeriesQuery.rows);
+
+
         const data = {
             totals: totalsQuery.rows,
             timeSeries: timeSeriesQuery.rows
@@ -44,7 +51,10 @@ export async function GET() {
 
         await redis.setex('energy_data', CACHE_TTL, JSON.stringify(data));
 
+        //console.log("Final API response:", data);
+
         return NextResponse.json(data);
+
     } catch (error) {
         console.error('Error fetching energy data:', error);
         return NextResponse.json({ error: 'Failed to fetch data' }, { status: 500 });

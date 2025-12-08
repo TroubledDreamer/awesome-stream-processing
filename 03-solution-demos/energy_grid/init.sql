@@ -1,8 +1,50 @@
+-- RisingWave Initialization Script
+
+-- Create Kafka sources for energy consumption and production
+CREATE SOURCE IF NOT EXISTS energy_consume (
+  consumption_time timestamptz, 
+  meter_id integer, 
+  energy_consumed double precision
+  ) WITH (
+    connector = 'kafka',
+    topic = 'energy_consumed',
+    properties.bootstrap.server = 'warpstream:9092'
+) FORMAT PLAIN ENCODE JSON;
+
+CREATE SOURCE IF NOT EXISTS energy_produce (
+  production_time timestamptz, 
+  meter_id integer, 
+  energy_produced double precision
+  ) WITH (
+    connector = 'kafka',
+    topic = 'energy_produced',
+    properties.bootstrap.server = 'warpstream:9092'
+) FORMAT PLAIN ENCODE JSON;
+
+-- Create PostgreSQL CDC source and customers table
+CREATE SOURCE IF NOT EXISTS pg_mydb WITH (
+    connector = 'postgres-cdc',
+    hostname = 'postgres',
+    port = '5432',
+    username = 'myuser',
+    password = '123456',
+    database.name = 'mydb'
+);
+
+CREATE TABLE customers (
+  customer_id int,
+  meter_id int,
+  address varchar,
+  price_plan varchar,
+  PRIMARY KEY (customer_id)
+) FROM pg_mydb TABLE 'public.customers';
+
+-- Create helper function for day counting
 CREATE FUNCTION count_days(a timestamptz)
 RETURNS NUMERIC LANGUAGE SQL AS
 $$SELECT EXTRACT(DAY FROM (DATE_TRUNC('month', a) + INTERVAL '1 month' - INTERVAL'1 day'))$$;
 
-
+-- Create materialized view for energy per house
 CREATE MATERIALIZED VIEW energy_per_house AS
 SELECT
 	consumed.meter_id,
@@ -41,15 +83,7 @@ FROM
     ) AS produced ON consumed.meter_id = produced.meter_id
     AND consumed.window_end = produced.window_end;
 
-CREATE MATERIALIZED VIEW mv_energy_totals AS
-SELECT
-  meter_id,
-  SUM(energy_consumed) AS total_consumed,
-  SUM(energy_produced) AS total_produced,
-  SUM(total_energy)    AS total_energy
-FROM energy_per_house
-GROUP BY meter_id;
-
+-- Create materialized view for monthly energy consumption
 CREATE MATERIALIZED VIEW energy_per_month AS
 SELECT
 	meter_id,
@@ -59,6 +93,7 @@ SELECT
 FROM energy_per_house
 GROUP BY meter_id, date_trunc('month', window_end), date_trunc('year', window_end);
 
+-- Create materialized views for different pricing plans
 CREATE MATERIALIZED VIEW tiered_meters AS
 SELECT
 	customers.meter_id,
@@ -77,6 +112,7 @@ FROM energy_per_house
 LEFT JOIN customers ON energy_per_house.meter_id = customers.meter_id
 WHERE customers.price_plan = 'time of use';
 
+-- Create materialized view for current tiered billing
 CREATE MATERIALIZED VIEW current_bill_tiered AS
 WITH monthly_consumption AS (
     SELECT
@@ -115,6 +151,7 @@ GROUP BY
     meter_id,
     month, year;
 
+-- Create materialized view for estimated tiered costs
 CREATE MATERIALIZED VIEW estimated_tier_cost AS
 WITH truncated_month AS (
     SELECT * FROM tiered_meters
@@ -166,6 +203,7 @@ FROM
 GROUP BY
     meter_id, month;
 
+-- Create materialized view for current time-of-use billing
 CREATE MATERIALIZED VIEW current_bill_tou AS
 WITH hourly_cost AS (
     SELECT
@@ -202,6 +240,7 @@ ON month_cost.meter_id = energy_per_month.meter_id
 	AND month_cost.month = energy_per_month.month
 	AND month_cost.year = energy_per_month.year;
 
+-- Create materialized view for estimated time-of-use costs
 CREATE MATERIALIZED VIEW estimated_tou_cost AS
 WITH truncated_month AS (
     SELECT * FROM tou_meters

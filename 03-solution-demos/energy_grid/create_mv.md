@@ -1,8 +1,16 @@
+## Create materialized views
+
+Run each of the following queries to start monitoring the energy usage patterns and monthly bills of each household. 
+
+In order to properly load the Grafana dashboard, all materialized views must be created.
+
+```sql
 CREATE FUNCTION count_days(a timestamptz)
 RETURNS NUMERIC LANGUAGE SQL AS
 $$SELECT EXTRACT(DAY FROM (DATE_TRUNC('month', a) + INTERVAL '1 month' - INTERVAL'1 day'))$$;
+```
 
-
+```sql
 CREATE MATERIALIZED VIEW energy_per_house AS
 SELECT
 	consumed.meter_id,
@@ -40,16 +48,9 @@ FROM
             window_end
     ) AS produced ON consumed.meter_id = produced.meter_id
     AND consumed.window_end = produced.window_end;
+```
 
-CREATE MATERIALIZED VIEW mv_energy_totals AS
-SELECT
-  meter_id,
-  SUM(energy_consumed) AS total_consumed,
-  SUM(energy_produced) AS total_produced,
-  SUM(total_energy)    AS total_energy
-FROM energy_per_house
-GROUP BY meter_id;
-
+```sql
 CREATE MATERIALIZED VIEW energy_per_month AS
 SELECT
 	meter_id,
@@ -58,7 +59,9 @@ SELECT
 	date_trunc('year', window_end) AS year
 FROM energy_per_house
 GROUP BY meter_id, date_trunc('month', window_end), date_trunc('year', window_end);
+```
 
+```sql
 CREATE MATERIALIZED VIEW tiered_meters AS
 SELECT
 	customers.meter_id,
@@ -76,7 +79,9 @@ SELECT
 FROM energy_per_house 
 LEFT JOIN customers ON energy_per_house.meter_id = customers.meter_id
 WHERE customers.price_plan = 'time of use';
+```
 
+```sql
 CREATE MATERIALIZED VIEW current_bill_tiered AS
 WITH monthly_consumption AS (
     SELECT
@@ -114,7 +119,9 @@ FROM
 GROUP BY
     meter_id,
     month, year;
+```
 
+```sql
 CREATE MATERIALIZED VIEW estimated_tier_cost AS
 WITH truncated_month AS (
     SELECT * FROM tiered_meters
@@ -165,7 +172,9 @@ FROM
     estimated_bills
 GROUP BY
     meter_id, month;
+```
 
+```sql
 CREATE MATERIALIZED VIEW current_bill_tou AS
 WITH hourly_cost AS (
     SELECT
@@ -201,7 +210,9 @@ LEFT JOIN energy_per_month
 ON month_cost.meter_id = energy_per_month.meter_id
 	AND month_cost.month = energy_per_month.month
 	AND month_cost.year = energy_per_month.year;
+```
 
+```sql
 CREATE MATERIALIZED VIEW estimated_tou_cost AS
 WITH truncated_month AS (
     SELECT * FROM tou_meters
@@ -239,3 +250,4 @@ SELECT
     GROUP BY
         meter_id,
         month;
+```

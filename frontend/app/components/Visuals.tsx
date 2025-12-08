@@ -113,100 +113,21 @@ export default function Visuals() {
   const [planPerformance, setPlanPerformance] = useState<
     Array<{ label: string; consumption: number; production: number }>
   >([]);
+  const [cityCounts, setCityCounts] = useState<Count[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Add WebSocket connection for real-time updates
-    const WS_URL = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8080";
-    let ws: WebSocket | null = null;
-
-    const connectWebSocket = () => {
-      console.log("[Visuals] Connecting to WebSocket:", WS_URL);
-      ws = new WebSocket(WS_URL);
-
-      ws.onopen = () => {
-        console.log("[Visuals] WebSocket connected");
-        // No subscription needed - server broadcasts to all clients
-      };
-
-      ws.onmessage = (event) => {
-        console.log("[Visuals] Raw WebSocket message:", event.data);
-        try {
-          const msg = JSON.parse(event.data);
-          console.log("[Visuals] Parsed WebSocket data:", msg);
-          
-          if (msg?.type === "energy_update" && msg.data) {
-            console.log("[Visuals] Energy update received:", msg.data);
-            
-            // Update time series from WebSocket data
-            if (msg.data.timeSeries) {
-              console.log("[Visuals] TimeSeries data received:", msg.data.timeSeries.length, "points");
-              console.log("[Visuals] Sample point:", msg.data.timeSeries[0]);
-              
-              const series: TimePoint[] = msg.data.timeSeries
-                .slice(0, 7)
-                .reverse()
-                .map((row: any) => {
-                  const time = new Date(row.window_end);
-                  return {
-                    label: time.toLocaleTimeString("en-US", {
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    }),
-                    consumption: row.energy_consumed || 0,
-                    production: row.energy_produced || 0,
-                  };
-                });
-              
-              console.log("[Visuals] Setting WebSocket time series:", series);
-              setTimeSeries(series);
-            }
-            
-            // Update top households from WebSocket data
-            if (msg.data.totals) {
-              const topMeters = msg.data.totals
-                .sort((a: any, b: any) => b.total_consumed - a.total_consumed)
-                .slice(0, 5)
-                .map((row: any) => ({
-                  label: String(row.meter_id),
-                  value: Math.round(row.total_consumed * 10) / 10,
-                }));
-              
-              console.log("[Visuals] Setting WebSocket top households:", topMeters);
-              setTopHouseholds(topMeters);
-            }
-          } else if (msg?.type === "ping") {
-            // Ignore heartbeat
-            return;
-          }
-        } catch (err) {
-          console.error("[Visuals] WebSocket parse error:", err);
-        }
-      };
-
-      ws.onerror = (err) => {
-        console.error("[Visuals] WebSocket error:", err);
-      };
-
-      ws.onclose = () => {
-        console.log("[Visuals] WebSocket closed, will reconnect...");
-        setTimeout(connectWebSocket, 2000);
-      };
-    };
-
     const fetchData = async () => {
       try {
-        console.log("[Visuals] Fetching REST API data...");
-        const [energyRes, billsRes] = await Promise.all([
+        const [energyRes, billsRes, customersRes] = await Promise.all([
           fetch("/api/energy"),
           fetch("/api/bills"),
+          fetch("/api/customers"),
         ]);
 
         const energyData = await energyRes.json();
         const billsData = await billsRes.json();
-        
-        console.log("[Visuals] REST API energyData:", energyData);
-        console.log("[Visuals] REST API billsData:", billsData);
+        const customersData = await customersRes.json();
 
         // Build time series from API data
         const series: TimePoint[] = (energyData.timeSeries || [])
@@ -327,6 +248,21 @@ export default function Visuals() {
           },
         ]);
 
+        // Households by city derived from customer addresses
+        const cityMap = new Map<string, number>();
+        (customersData || []).forEach((cust: any) => {
+          const address = String(cust.address || "");
+          const parts = address.split(",").map((p) => p.trim()).filter(Boolean);
+          // Prefer second segment (city) if it exists, otherwise first segment
+          const city = parts.length >= 2 ? parts[1] : parts[0] || "Unknown";
+          if (!cityMap.has(city)) cityMap.set(city, 0);
+          cityMap.set(city, (cityMap.get(city) || 0) + 1);
+        });
+        const cityCountList = Array.from(cityMap.entries())
+          .map(([label, value]) => ({ label, value }))
+          .sort((a, b) => b.value - a.value);
+        setCityCounts(cityCountList);
+
         console.log("Time series data:", series);
         console.log("Time series length:", series.length);
         if (series.length > 0) {
@@ -352,29 +288,15 @@ export default function Visuals() {
       }
     };
 
-    // Start both WebSocket and REST API fetching
-    connectWebSocket();
     fetchData();
     const interval = setInterval(fetchData, 5000);
-    
-    return () => {
-      clearInterval(interval);
-      ws?.close();
-    };
+    return () => clearInterval(interval);
   }, []);
 
   const netFlow = timeSeries.map((p) => ({
     label: p.label,
     value: p.production - p.consumption,
   }));
-
-  const cityCounts: Count[] = [
-    { label: "Springfield", value: 4 },
-    { label: "Shelbyville", value: 4 },
-    { label: "Ogdenville", value: 4 },
-    { label: "Capital City", value: 3 },
-    { label: "North Haverbrook", value: 5 },
-  ];
 
   const consumptionPath = timeSeries.length
     ? linePath(timeSeries, "consumption", 300, 140)
@@ -396,41 +318,13 @@ export default function Visuals() {
 
   return (
     <section className="mx-auto w-full max-w-screen-2xl px-6 pb-8">
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        <div className="col-span-1 rounded-2xl border border-[#dbe5f0] bg-white px-5 py-5 text-[#0b1b33] shadow-[0_18px_50px_-24px_rgba(11,27,51,0.35)]">
-          <div className="flex items-center justify-between">
-            <h2 className="text-lg font-semibold">Price Plan Mix</h2>
-            <span className="text-xs text-[#4a5568]">Households</span>
-          </div>
-          <div className="mt-4 flex items-center gap-4">
-            <Donut data={pricePlanBreakdown} />
-            <div className="space-y-3 text-sm text-[#0b1b33]">
-              {pricePlanBreakdown.map((d, idx) => (
-                <div key={d.label} className="flex items-center gap-3">
-                  <span
-                    className="h-3 w-3 rounded-full"
-                    style={{
-                      background: ["#0b6b6b", "#0f3a4f", "#0b1b33", "#0c777a"][
-                        idx % 4
-                      ],
-                    }}
-                  />
-                  <div className="flex items-center gap-2">
-                    <span className="font-medium">{d.label}</span>
-                    <span className="text-xs text-[#4a5568]">{d.value}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        <div className="col-span-1 lg:col-span-2 rounded-2xl border border-[#dbe5f0] bg-white px-5 py-5 text-[#0b1b33] shadow-[0_18px_50px_-24px_rgba(11,27,51,0.35)]">
+      <div className="grid grid-cols-1 gap-6">
+        <div className="rounded-2xl border border-[#dbe5f0] bg-white px-4 py-4 text-[#0b1b33] shadow-[0_18px_50px_-24px_rgba(11,27,51,0.35)]">
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-semibold">Consumption vs Production</h2>
             <span className="text-xs text-[#4a5568]">Live from RisingWave</span>
           </div>
-          <div className="mt-4">
+          <div className="mt-3">
             {timeSeries.length === 0 ? (
               <div className="h-48 flex items-center justify-center text-sm text-zinc-500">
                 No time series data available (waiting for data to
@@ -504,142 +398,149 @@ export default function Visuals() {
           </div>
         </div>
 
-        <div className="rounded-2xl border border-[#dbe5f0] bg-white px-5 py-5 text-[#0b1b33] shadow-[0_18px_50px_-24px_rgba(11,27,51,0.35)]">
-          <div className="flex items-center justify-between">
-            <h2 className="text-lg font-semibold">Net Grid Flow</h2>
-            <span className="text-xs text-[#4a5568]">
-              Production − Consumption
-            </span>
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+          <div className="rounded-2xl border border-[#dbe5f0] bg-white px-4 py-4 text-[#0b1b33] shadow-[0_18px_50px_-24px_rgba(11,27,51,0.35)]">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-semibold">Net Grid Flow</h2>
+              <span className="text-xs text-[#4a5568]">
+                Production − Consumption
+              </span>
+            </div>
+            <div className="mt-3">
+              {netFlow.length === 0 ? (
+                <div className="h-24 flex items-center justify-center text-sm text-zinc-500">
+                  No net flow data available
+                </div>
+              ) : (
+                <div className="grid grid-cols-7 gap-2">
+                  {netFlow.slice(0, 7).map((n) => {
+                    const height = (Math.abs(n.value) / netMax) * 100;
+                    const positive = n.value >= 0;
+                    return (
+                      <div
+                        key={n.label}
+                        className="flex flex-col items-center gap-1"
+                      >
+                        <div className="relative h-20 w-8 rounded bg-[#e6edf5]">
+                          <div
+                            className={`absolute bottom-0 w-full rounded ${
+                              positive ? "bg-[#0b6b6b]" : "bg-[#f56565]"
+                            }`}
+                            style={{ height: `${height}%` }}
+                          />
+                        </div>
+                        <span className="text-[11px] text-[#4a5568]">
+                          {n.label}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           </div>
-          <div className="mt-4">
-            {netFlow.length === 0 ? (
-              <div className="h-24 flex items-center justify-center text-sm text-zinc-500">
-                No net flow data available
+
+          <div className="rounded-2xl border border-[#dbe5f0] bg-white px-4 py-4 text-[#0b1b33] shadow-[0_18px_50px_-24px_rgba(11,27,51,0.35)]">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-semibold">
+                Top Households by Consumption
+              </h2>
+              <span className="text-xs text-[#4a5568]">Live kWh</span>
+            </div>
+            <div className="mt-3">
+              <div className="mb-2 flex items-center justify-between text-[11px] font-semibold uppercase text-[#4a5568]">
+                <span>ID</span>
+                <span>Consumption</span>
               </div>
-            ) : (
-              <div className="grid grid-cols-5 gap-3">
-                {netFlow.slice(0, 7).map((n) => {
-                  const height = (Math.abs(n.value) / netMax) * 100;
-                  const positive = n.value >= 0;
-                  return (
-                    <div
-                      key={n.label}
-                      className="flex flex-col items-center gap-2"
-                    >
-                      <div className="relative h-24 w-10 rounded bg-[#e6edf5]">
+              <BarList data={topHouseholds} color="#0b6b6b" suffix=" kWh" />
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-[#dbe5f0] bg-white px-4 py-4 text-[#0b1b33] shadow-[0_18px_50px_-24px_rgba(11,27,51,0.35)]">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-semibold">Billing Impact</h2>
+              <span className="text-xs text-[#4a5568]">Live USD</span>
+            </div>
+            <div className="mt-3">
+              <div className="mb-2 flex items-center justify-between text-[11px] font-semibold uppercase text-[#4a5568]">
+                <span>ID</span>
+                <span>Bill</span>
+              </div>
+              <BarList data={billingImpact} color="#0f3a4f" suffix=" $" />
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+          <div className="rounded-2xl border border-[#dbe5f0] bg-white px-4 py-4 text-[#0b1b33] shadow-[0_18px_50px_-24px_rgba(11,27,51,0.35)]">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-semibold">Plan Performance</h2>
+              <span className="text-xs text-[#4a5568]">Avg kWh</span>
+            </div>
+            <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+              {planPerformance.map((p) => {
+                const maxValue = Math.max(
+                  ...planPerformance.map((x) => Math.max(x.consumption, x.production)),
+                  1
+                );
+                return (
+                  <div
+                    key={p.label}
+                    className="space-y-2 rounded-lg bg-[#f7fbff] px-3 py-3"
+                  >
+                    <div className="flex items-center justify-between text-sm font-medium">
+                      <span>{p.label}</span>
+                      <span className="text-xs text-[#4a5568]">
+                        Consumption vs Production
+                      </span>
+                    </div>
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between text-xs text-[#4a5568]">
+                        <span>Consumption</span>
+                        <span>{p.consumption.toFixed(1)} kWh</span>
+                      </div>
+                      <div className="h-2 rounded-full bg-[#e6edf5]">
                         <div
-                          className={`absolute bottom-0 w-full rounded ${
-                            positive ? "bg-[#0b6b6b]" : "bg-[#f56565]"
-                          }`}
-                          style={{ height: `${height}%` }}
+                          className="h-2 rounded-full bg-[#0b6b6b]"
+                          style={{
+                            width: `${Math.min(100, (p.consumption / maxValue) * 100)}%`,
+                          }}
                         />
                       </div>
-                      <span className="text-xs text-[#4a5568]">{n.label}</span>
                     </div>
-                  );
-                })}
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between text-xs text-[#4a5568]">
+                        <span>Production</span>
+                        <span>{p.production.toFixed(1)} kWh</span>
+                      </div>
+                      <div className="h-2 rounded-full bg-[#e6edf5]">
+                        <div
+                          className="h-2 rounded-full bg-[#0f3a4f]"
+                          style={{
+                            width: `${Math.min(100, (p.production / maxValue) * 100)}%`,
+                          }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-[#dbe5f0] bg-white px-4 py-4 text-[#0b1b33] shadow-[0_18px_50px_-24px_rgba(11,27,51,0.35)]">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-semibold">Households by City</h2>
+                <p className="text-xs text-[#4a5568]">
+                  {cityCounts.length ? `${cityCounts.length} cities` : "No cities available"}
+                </p>
               </div>
-            )}
-          </div>
-        </div>
-
-        <div className="rounded-2xl border border-[#dbe5f0] bg-white px-5 py-5 text-[#0b1b33] shadow-[0_18px_50px_-24px_rgba(11,27,51,0.35)]">
-          <div className="flex items-center justify-between">
-            <h2 className="text-lg font-semibold">
-              Top Households by Consumption
-            </h2>
-            <span className="text-xs text-[#4a5568]">Live kWh</span>
-          </div>
-          <div className="mt-4">
-            <BarList data={topHouseholds} color="#0b6b6b" suffix=" kWh" />
-          </div>
-        </div>
-
-        <div className="rounded-2xl border border-[#dbe5f0] bg-white px-5 py-5 text-[#0b1b33] shadow-[0_18px_50px_-24px_rgba(11,27,51,0.35)]">
-          <div className="flex items-center justify-between">
-            <h2 className="text-lg font-semibold">Plan Performance</h2>
-            <span className="text-xs text-[#4a5568]">Avg kWh</span>
-          </div>
-          <div className="mt-4 space-y-3">
-            {planPerformance.map((p) => (
-              <div
-                key={p.label}
-                className="space-y-2 rounded-lg bg-[#f7fbff] px-3 py-3"
-              >
-                <div className="flex items-center justify-between text-sm font-medium">
-                  <span>{p.label}</span>
-                  <span className="text-xs text-[#4a5568]">
-                    Consumption vs Production
-                  </span>
-                </div>
-                <div className="space-y-1">
-                  <div className="flex items-center justify-between text-xs text-[#4a5568]">
-                    <span>Consumption</span>
-                    <span>{p.consumption.toFixed(1)} kWh</span>
-                  </div>
-                  <div className="h-2 rounded-full bg-[#e6edf5]">
-                    <div
-                      className="h-2 rounded-full bg-[#0b6b6b]"
-                      style={{
-                        width: `${Math.min(
-                          100,
-                          (p.consumption /
-                            Math.max(
-                              ...planPerformance.map((x) =>
-                                Math.max(x.consumption, x.production)
-                              )
-                            )) *
-                            100
-                        )}%`,
-                      }}
-                    />
-                  </div>
-                </div>
-                <div className="space-y-1">
-                  <div className="flex items-center justify-between text-xs text-[#4a5568]">
-                    <span>Production</span>
-                    <span>{p.production.toFixed(1)} kWh</span>
-                  </div>
-                  <div className="h-2 rounded-full bg-[#e6edf5]">
-                    <div
-                      className="h-2 rounded-full bg-[#0f3a4f]"
-                      style={{
-                        width: `${Math.min(
-                          100,
-                          (p.production /
-                            Math.max(
-                              ...planPerformance.map((x) =>
-                                Math.max(x.consumption, x.production)
-                              )
-                            )) *
-                            100
-                        )}%`,
-                      }}
-                    />
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="rounded-2xl border border-[#dbe5f0] bg-white px-5 py-5 text-[#0b1b33] shadow-[0_18px_50px_-24px_rgba(11,27,51,0.35)]">
-          <div className="flex items-center justify-between">
-            <h2 className="text-lg font-semibold">Billing Impact</h2>
-            <span className="text-xs text-[#4a5568]">Live USD</span>
-          </div>
-          <div className="mt-4">
-            <BarList data={billingImpact} color="#0f3a4f" suffix=" $" />
-          </div>
-        </div>
-
-        <div className="rounded-2xl border border-[#dbe5f0] bg-white px-5 py-5 text-[#0b1b33] shadow-[0_18px_50px_-24px_rgba(11,27,51,0.35)]">
-          <div className="flex items-center justify-between">
-            <h2 className="text-lg font-semibold">Households by City</h2>
-            <span className="text-xs text-[#4a5568]">Count</span>
-          </div>
-          <div className="mt-4">
-            <BarList data={cityCounts} color="#0b1b33" />
+              <span className="text-xs text-[#4a5568]">Count</span>
+            </div>
+            <div className="mt-3">
+              <BarList data={cityCounts} color="#0b1b33" />
+            </div>
           </div>
         </div>
       </div>

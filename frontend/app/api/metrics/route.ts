@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { pool, redis } from '@/lib/db';
 
 const CACHE_TTL = 5;
+const METRICS_CHANNEL = 'metrics_updates';
 
 export async function GET() {
     try {
@@ -119,6 +120,13 @@ export async function GET() {
             hourlyChart: hourlyChartQuery.rows,
             dailyChart: dailyChartQuery.rows
         };
+
+        // Publish live metrics update for WebSocket subscribers
+        try {
+            await redis.publish(METRICS_CHANNEL, JSON.stringify(data));
+        } catch (pubError) {
+            console.error('Failed to publish metrics update:', pubError);
+        }
 
         await redis.setex('metrics', CACHE_TTL, JSON.stringify(data));
 
