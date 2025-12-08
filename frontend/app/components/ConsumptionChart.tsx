@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 type TimePoint = { label: string; consumption: number; production: number };
 function formatLabel(label: string) {
   const d = new Date(label);
+  if (Number.isNaN(d.getTime())) return "";
   return d.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
 }
 
@@ -111,13 +112,16 @@ export function ConsumptionChart({ timeSeries, tooltip, fallback, appendPoints =
   }, [series, fallback]);
 
   const xLabelEvery = Math.max(1, Math.ceil(effectiveSeries.length / 6));
-  const width = Math.max(320, effectiveSeries.length * 18);
+  const paddingX = 30;
+  const paddingY = 20;
+  const plotHeight = 140;
+  const width = Math.max(640, effectiveSeries.length * 8) + paddingX * 2;
 
   const consumptionPath = effectiveSeries.length
-    ? linePath(effectiveSeries, "consumption", width - 20, 140)
+    ? linePath(effectiveSeries, "consumption", width - paddingX * 2, plotHeight)
     : "";
   const productionPath = effectiveSeries.length
-    ? linePath(effectiveSeries, "production", width - 20, 140)
+    ? linePath(effectiveSeries, "production", width - paddingX * 2, plotHeight)
     : "";
 
   const yMax = useMemo(
@@ -142,10 +146,32 @@ export function ConsumptionChart({ timeSeries, tooltip, fallback, appendPoints =
   const firstLabel = effectiveSeries[0]?.label;
   const lastLabel = effectiveSeries[effectiveSeries.length - 1]?.label;
 
+  const xTicks = useMemo(() => {
+    if (!effectiveSeries.length) return [] as Array<{ x: number; label: string }>;
+    const step = Math.max(1, Math.floor(effectiveSeries.length / 6));
+    return effectiveSeries
+      .map((p, idx) => ({
+        x: paddingX + (idx / Math.max(effectiveSeries.length - 1, 1)) * (width - paddingX * 2),
+        label: formatLabel(p.label),
+        idx,
+      }))
+      .filter((t, idx) => (idx % step === 0 || idx === effectiveSeries.length - 1) && t.label);
+  }, [effectiveSeries, width]);
+
+  const yTicks = useMemo(() => {
+    if (!effectiveSeries.length) return [] as Array<{ value: number; y: number }>;
+    const range = yMax - yMin || 1;
+    const steps = 4;
+    return Array.from({ length: steps + 1 }, (_, i) => {
+      const frac = i / steps;
+      const value = yMax - frac * range;
+      const y = 140 - frac * 140;
+      return { value, y };
+    });
+  }, [yMax, yMin, effectiveSeries.length]);
+
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollLeft = scrollRef.current.scrollWidth;
-    }
+    // Preserve user scroll position; no auto-scroll to avoid jumps on updates
   }, [effectiveSeries.length]);
 
   return (
@@ -172,7 +198,7 @@ export function ConsumptionChart({ timeSeries, tooltip, fallback, appendPoints =
         ) : (
           <>
             <div ref={scrollRef} className="overflow-x-auto">
-              <svg viewBox={`0 0 ${width} 180`} className="h-48" style={{ minWidth: width }}>
+              <svg viewBox={`0 0 ${width} 200`} className="h-56" style={{ minWidth: width }}>
                 <defs>
                   <linearGradient id="consumptionGradient" x1="0" x2="0" y1="0" y2="1">
                     <stop offset="0%" stopColor="#0b6b6b" stopOpacity="0.3" />
@@ -191,6 +217,7 @@ export function ConsumptionChart({ timeSeries, tooltip, fallback, appendPoints =
                     strokeLinejoin="round"
                     strokeLinecap="round"
                     points={consumptionPath}
+                    transform={`translate(${paddingX},${paddingY})`}
                   />
                 )}
                 {productionPath && (
@@ -201,6 +228,7 @@ export function ConsumptionChart({ timeSeries, tooltip, fallback, appendPoints =
                     strokeLinejoin="round"
                     strokeLinecap="round"
                     points={productionPath}
+                    transform={`translate(${paddingX},${paddingY})`}
                   />
                 )}
                 {effectiveSeries.map((p, idx) => {
@@ -212,16 +240,55 @@ export function ConsumptionChart({ timeSeries, tooltip, fallback, appendPoints =
                     ...effectiveSeries.map((pt) => Math.min(pt.consumption, pt.production))
                   );
                   const range = max - min || 1;
-                  const x = ((idx / Math.max(effectiveSeries.length - 1, 1)) * (width - 20));
-                  const yCons = 140 - ((p.consumption - min) / range) * 140;
-                  const yProd = 140 - ((p.production - min) / range) * 140;
+                  const x = paddingX + ((idx / Math.max(effectiveSeries.length - 1, 1)) * (width - paddingX * 2));
+                  const yCons = paddingY + (140 - ((p.consumption - min) / range) * 140);
+                  const yProd = paddingY + (140 - ((p.production - min) / range) * 140);
+                  const displayTime = formatLabel(p.label);
                   return (
                     <g key={`${p.label}-${idx}`}>
+                      <title>{`${displayTime}\nConsumption: ${p.consumption.toFixed(2)} kWh\nProduction: ${p.production.toFixed(2)} kWh`}</title>
                       <circle cx={x} cy={yCons} r={3.5} fill="#0b6b6b" stroke="#fff" strokeWidth={1} />
                       <circle cx={x} cy={yProd} r={3.5} fill="#0f3a4f" stroke="#fff" strokeWidth={1} />
                     </g>
                   );
                 })}
+                {yTicks.map((tick, idx) => (
+                  <g key={`yt-${idx}`}>
+                    <line
+                      x1={paddingX}
+                      y1={paddingY + tick.y}
+                      x2={width - paddingX}
+                      y2={paddingY + tick.y}
+                      stroke="#e5e7eb"
+                      strokeWidth={1}
+                      strokeDasharray="4 4"
+                    />
+                    <text x={6} y={paddingY + tick.y - 4} fontSize="10" fill="#4a5568">
+                      {tick.value.toFixed(1)}
+                    </text>
+                  </g>
+                ))}
+                {xTicks.map((tick) => (
+                  <g key={`tick-${tick.idx}`}>
+                    <line
+                      x1={tick.x}
+                      y1={paddingY + 150}
+                      x2={tick.x}
+                      y2={paddingY + 158}
+                      stroke="#cbd5e1"
+                      strokeWidth={1}
+                    />
+                    <text
+                      x={tick.x}
+                      y={paddingY + 172}
+                      fontSize="10"
+                      fill="#4a5568"
+                      textAnchor="middle"
+                    >
+                      {tick.label}
+                    </text>
+                  </g>
+                ))}
                 {/* Axes labels */}
                 <text x={4} y={12} fontSize="10" fill="#4a5568">
                   kWh
@@ -244,12 +311,12 @@ export function ConsumptionChart({ timeSeries, tooltip, fallback, appendPoints =
                     </text>
                     {firstLabel && (
                       <text x={4} y={175} fontSize="10" fill="#4a5568">
-                        {firstLabel}
+                        {formatLabel(firstLabel)}
                       </text>
                     )}
                     {lastLabel && (
                       <text x={width - 80} y={175} fontSize="10" fill="#4a5568">
-                        {lastLabel}
+                        {formatLabel(lastLabel)}
                       </text>
                     )}
                   </>

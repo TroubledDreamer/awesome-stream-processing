@@ -1,18 +1,51 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useEnergyStream } from "@/lib/useEnergyStream";
 
 export default function MetricsPanel() {
   const { energy, lastMessageTs } = useEnergyStream(200);
   const [isExpanded, setIsExpanded] = useState(false);
+  const [metricsFallback, setMetricsFallback] = useState<any | null>(null);
+
+  // Fetch server-side metrics as a fallback for longer-range daily data
+  useEffect(() => {
+    let cancelled = false;
+    const fetchMetrics = async () => {
+      try {
+        const res = await fetch("/api/metrics");
+        if (!res.ok) return;
+        const json = await res.json();
+        if (!cancelled) setMetricsFallback(json);
+      } catch (err) {
+        // silent failure
+      }
+    };
+    fetchMetrics();
+    const id = setInterval(fetchMetrics, 15000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, []);
 
   const derived = useMemo(() => {
     const ts = energy?.timeSeries || [];
     const totals = energy?.totals || [];
 
-    const latestTs = ts[0]?.window_end ? new Date(ts[0].window_end) : new Date();
-    const now = lastMessageTs ? new Date(lastMessageTs) : latestTs;
+    // Compute the freshest simulated timestamp from both timeSeries and totals
+    const simCandidates: number[] = [];
+    ts.forEach((row: any) => {
+      const d = row?.window_end ? new Date(row.window_end) : null;
+      if (d && !Number.isNaN(d.getTime())) simCandidates.push(d.getTime());
+    });
+    totals.forEach((row: any) => {
+      const d = row?.last_update ? new Date(row.last_update) : null;
+      if (d && !Number.isNaN(d.getTime())) simCandidates.push(d.getTime());
+    });
+
+    const latestSimTs = simCandidates.length ? Math.max(...simCandidates) : null;
+    const now = latestSimTs ? new Date(latestSimTs) : lastMessageTs ? new Date(lastMessageTs) : new Date();
 
     // Group by hour/day (based on timeSeries)
     const hourlyChart = ts.map((row: any) => ({
@@ -26,20 +59,30 @@ export default function MetricsPanel() {
       const prev = dailyMap.get(dayKey) || 0;
       dailyMap.set(dayKey, prev + Number(row.total_energy || 0));
     });
-    const dailyChart = Array.from(dailyMap.entries()).map(([day, total_energy]) => ({
+    let dailyChart = Array.from(dailyMap.entries()).map(([day, total_energy]) => ({
       day,
       total_energy,
     }));
+
+    // If we don't have enough data locally, fall back to /api/metrics dailyChart
+    if (dailyChart.length === 0 && metricsFallback?.dailyChart?.length) {
+      dailyChart = metricsFallback.dailyChart.map((row: any) => ({
+        day: row.day || row.day_start || row.date || row?.day?.toString?.() || row?.day,
+        total_energy: Number(row.total_energy || 0),
+      }));
+    }
+
+    dailyChart.sort((a, b) => new Date(a.day).getTime() - new Date(b.day).getTime());
 
     const netConsumptionHour = hourlyChart
       .filter((p) => new Date(p.hour).getHours() === now.getHours())
       .reduce((sum, p) => sum + p.total_energy, 0);
 
-    const netConsumptionDay = dailyMap.get(now.toISOString().slice(0, 10)) || 0;
+    const netConsumptionDay = dailyMap.get(now.toISOString().slice(0, 10)) || (metricsFallback?.netConsumptionDay ?? 0);
     const netConsumptionMonth = totals.reduce(
       (sum: number, row: any) => sum + Number(row.total_energy || 0),
       0
-    );
+    ) || metricsFallback?.netConsumptionMonth || 0;
 
     const avgPerDay =
       dailyChart.length > 0
