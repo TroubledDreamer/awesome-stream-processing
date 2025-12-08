@@ -3,8 +3,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 type TimePoint = { label: string; consumption: number; production: number };
-type Range = "1h" | "3h" | "6h" | "12h" | "24h" | "all";
-
 function formatLabel(label: string) {
   const d = new Date(label);
   return d.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
@@ -58,34 +56,34 @@ type ConsumptionChartProps = {
   timeSeries: TimePoint[];
   tooltip?: string;
   fallback?: FallbackStats;
+  appendPoints?: boolean;
 };
 
-export function ConsumptionChart({ timeSeries, tooltip, fallback }: ConsumptionChartProps) {
-  const allRanges: Range[] = ["1h", "3h", "6h", "12h", "24h", "all"];
-  const [rangeIdx, setRangeIdx] = useState(0);
+export function ConsumptionChart({ timeSeries, tooltip, fallback, appendPoints = false }: ConsumptionChartProps) {
   const [showAverage, setShowAverage] = useState(false);
-  const tapRef = useRef<number>(0);
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const [history, setHistory] = useState<TimePoint[]>([]);
+  // Optional: build on previous points instead of replacing
+  useEffect(() => {
+    if (!appendPoints) return;
+    if (!timeSeries.length) return;
+    setHistory((prev) => {
+      const seen = new Set(prev.map((p) => p.label));
+      const merged = [...prev];
+      timeSeries.forEach((p) => {
+        if (!seen.has(p.label)) {
+          merged.push(p);
+          seen.add(p.label);
+        }
+      });
+      merged.sort((a, b) => new Date(a.label).getTime() - new Date(b.label).getTime());
+      return merged.slice(-500);
+    });
+  }, [appendPoints, timeSeries]);
 
-  // Cycle ranges on quick double-tap
-  const cycleRange = () => {
-    const now = Date.now();
-    if (now - tapRef.current < 300) {
-      setRangeIdx((i) => (i + 1) % allRanges.length);
-    }
-    tapRef.current = now;
-  };
+  const sourceSeries = appendPoints && history.length ? history : timeSeries;
 
-  const filtered = useMemo(() => {
-    const range = allRanges[rangeIdx] ?? "all";
-    if (range === "all") return timeSeries;
-    const hours = range === "1h" ? 1 : range === "3h" ? 3 : range === "6h" ? 6 : range === "12h" ? 12 : 24;
-    const cutoff = new Date();
-    cutoff.setHours(cutoff.getHours() - hours);
-    return timeSeries.filter((p) => new Date(p.label) >= cutoff);
-  }, [timeSeries, rangeIdx, allRanges]);
-
-  const series = useMemo(() => (showAverage ? movingAverage(filtered, 5) : filtered), [filtered, showAverage]);
+  const series = useMemo(() => (showAverage ? movingAverage(sourceSeries, 5) : sourceSeries), [sourceSeries, showAverage]);
 
   const effectiveSeries = useMemo(() => {
     if (series.length) return series;
@@ -164,10 +162,9 @@ export function ConsumptionChart({ timeSeries, tooltip, fallback }: ConsumptionC
           >
             {showAverage ? "Raw" : "Avg"}
           </button>
-          <span>Range: {allRanges[rangeIdx]}</span>
         </div>
       </div>
-      <div className="mt-4" onDoubleClick={cycleRange}>
+      <div className="mt-4">
         {effectiveSeries.length === 0 ? (
           <div className="h-48 flex items-center justify-center text-sm text-zinc-600">
             No time series data yet (waiting for stream)...

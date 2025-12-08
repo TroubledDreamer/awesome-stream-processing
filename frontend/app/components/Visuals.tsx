@@ -51,6 +51,7 @@ export default function Visuals({ contextLabel }: VisualsProps) {
   const { energy, connected, messageCount, lastMessageTs } = useEnergyStream(120);
   const [bills, setBills] = useState<BillsData>({ tiered: [], tou: [] });
   const [loadingBills, setLoadingBills] = useState(true);
+  const [chartSeries, setChartSeries] = useState<TimePoint[]>([]);
 
   // Pull bills straight from the WebSocket stream; fallback to one fetch if absent
   useEffect(() => {
@@ -93,8 +94,10 @@ export default function Visuals({ contextLabel }: VisualsProps) {
 
   const latestSimTime = useMemo(() => {
     const ts = rawSeries[0]?.window_end;
-    return ts ? new Date(ts) : null;
-  }, [rawSeries]);
+    if (ts) return new Date(ts);
+    if (chartSeries.length) return new Date(chartSeries[chartSeries.length - 1].label);
+    return lastMessageTs ? new Date(lastMessageTs) : null;
+  }, [rawSeries, chartSeries, lastMessageTs]);
 
   const latestHeartbeat = useMemo(() => {
     return lastMessageTs ? new Date(lastMessageTs) : null;
@@ -118,6 +121,34 @@ export default function Visuals({ contextLabel }: VisualsProps) {
         }),
     [rawSeries]
   );
+
+  // Append incoming points to preserve history on the chart
+  useEffect(() => {
+    const latest = rawSeries[0];
+    if (!latest?.window_end) return;
+    const label = new Date(latest.window_end).toISOString();
+    const point: TimePoint = {
+      label,
+      consumption: Number(latest.energy_consumed || 0),
+      production: Number(latest.energy_produced || 0),
+    };
+    setChartSeries((prev) => {
+      if (prev.length && prev[prev.length - 1].label === label) return prev;
+      const next = [...prev, point];
+      return next.slice(-200);
+    });
+  }, [rawSeries]);
+
+  const displaySeries = useMemo<TimePoint[]>(() => {
+    if (chartSeries.length === 0) return timeSeries;
+    return chartSeries.map((p) => ({
+      ...p,
+      label: new Date(p.label).toLocaleTimeString("en-US", {
+        hour: "2-digit",
+        minute: "2-digit",
+      }),
+    }));
+  }, [chartSeries, timeSeries]);
 
   const totalsSummary = useMemo(() => {
     const totalConsumption = totals.reduce(
@@ -319,7 +350,7 @@ export default function Visuals({ contextLabel }: VisualsProps) {
         </div>
 
         <ConsumptionChart
-          timeSeries={timeSeries}
+          timeSeries={displaySeries}
           tooltip="Live consumption vs production trend"
           fallback={{
             consumption: totalsSummary.consumption,
@@ -329,6 +360,7 @@ export default function Visuals({ contextLabel }: VisualsProps) {
             lastMessageTs,
             simulatedTime: latestSimTime,
           }}
+          appendPoints
         />
 
         <div
