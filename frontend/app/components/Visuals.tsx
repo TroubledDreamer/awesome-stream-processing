@@ -119,6 +119,22 @@ export default function Visuals({ contextLabel }: VisualsProps) {
     [rawSeries]
   );
 
+  const totalsSummary = useMemo(() => {
+    const totalConsumption = totals.reduce(
+      (sum: number, row: any) => sum + Number(row.total_consumed || 0),
+      0
+    );
+    const totalProduction = totals.reduce(
+      (sum: number, row: any) => sum + Number(row.total_produced || 0),
+      0
+    );
+    return {
+      consumption: totalConsumption,
+      production: totalProduction,
+      net: totalProduction - totalConsumption,
+    };
+  }, [totals]);
+
   const topHouseholds = useMemo<Count[]>(
     () =>
       totals
@@ -216,17 +232,13 @@ export default function Visuals({ contextLabel }: VisualsProps) {
         label: "Tier",
         current: tierCurrent,
         estimated: tierEst,
-        deltaPct: tierCurrent
-          ? Number((((tierEst - tierCurrent) / Math.abs(tierCurrent)) * 100).toFixed(1))
-          : 0,
+        multiplier: tierEst > 0 ? tierCurrent / tierEst : null,
       },
       {
         label: "Time of Use",
         current: touCurrent,
         estimated: touEst,
-        deltaPct: touCurrent
-          ? Number((((touEst - touCurrent) / Math.abs(touCurrent)) * 100).toFixed(1))
-          : 0,
+        multiplier: touEst > 0 ? touCurrent / touEst : null,
       },
     ];
 
@@ -272,42 +284,35 @@ export default function Visuals({ contextLabel }: VisualsProps) {
             <h2 className="text-lg font-semibold">Plan Cost Comparison</h2>
             <span className="text-xs text-[#4a5568]">Cheapest: {planCostStats.cheapestLabel}</span>
           </div>
-          <div className="mt-4 grid grid-cols-1 gap-3 text-sm">
+          <div className="mt-4 space-y-3 text-sm">
             {planCostStats.stats.map((p) => (
               <div
                 key={p.label}
                 className="rounded-lg border border-[#e6edf5] bg-[#f7fbff] px-3 py-3"
-                title={`Current: $${p.current.toFixed(2)} • Estimated: $${p.estimated.toFixed(2)}`}
               >
+                {p.multiplier === null && (
+                  <p className="text-xs text-red-500 mb-1">Missing estimate data</p>
+                )}
                 <div className="flex items-center justify-between">
                   <span className="font-medium">{p.label}</span>
-                  <span className={`text-xs font-semibold ${p.deltaPct <= 0 ? "text-[#0b6b6b]" : "text-red-500"}`}>
-                    {p.deltaPct >= 0 ? "+" : ""}{p.deltaPct}%
-                  </span>
+                  {p.multiplier !== null && (
+                    <span
+                      className={`text-xs px-2 py-0.5 rounded-full ${p.multiplier <= 1 ? "bg-[#e6f4f4] text-[#0b6b6b]" : "bg-red-50 text-red-500"}`}
+                    >
+                      {`${p.multiplier.toFixed(2)}× estimate`}
+                    </span>
+                  )}
                 </div>
-                <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-[#4a5568]">
+                <div className="mt-2 flex items-center justify-between text-xs text-[#4a5568]">
                   <div>
-                    <p className="text-[11px] uppercase tracking-wide">Current</p>
+                    <p className="text-[11px] uppercase tracking-wide">Bill-to-Date</p>
                     <p className="text-base font-semibold text-[#0b1b33]">${p.current.toFixed(2)}</p>
                   </div>
-                  <div>
-                    <p className="text-[11px] uppercase tracking-wide">Estimated</p>
+                  <div className="text-right">
+                    <p className="text-[11px] uppercase tracking-wide">Monthly Estimate</p>
                     <p className="text-base font-semibold text-[#0b1b33]">${p.estimated.toFixed(2)}</p>
                   </div>
                 </div>
-                <div className="mt-2 h-2 rounded-full bg-[#e6edf5]">
-                  <div
-                    className={`h-2 rounded-full ${p.deltaPct <= 0 ? "bg-[#0b6b6b]" : "bg-red-400"}`}
-                    style={{ width: `${Math.min(100, Math.abs(p.deltaPct))}%` }}
-                  />
-                </div>
-                <p className="mt-1 text-[11px] text-[#4a5568]">
-                  {p.deltaPct === 0
-                    ? "No change vs estimate"
-                    : p.deltaPct < 0
-                    ? `${Math.abs(p.deltaPct)}% under estimate`
-                    : `${p.deltaPct}% over estimate`}
-                </p>
               </div>
             ))}
           </div>
@@ -316,6 +321,14 @@ export default function Visuals({ contextLabel }: VisualsProps) {
         <ConsumptionChart
           timeSeries={timeSeries}
           tooltip="Live consumption vs production trend"
+          fallback={{
+            consumption: totalsSummary.consumption,
+            production: totalsSummary.production,
+            net: totalsSummary.net,
+            connected,
+            lastMessageTs,
+            simulatedTime: latestSimTime,
+          }}
         />
 
         <div
