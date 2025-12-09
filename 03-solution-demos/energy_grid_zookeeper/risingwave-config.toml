@@ -1,0 +1,3 @@
+# risingwave-config.toml file
+[storage]
+data_directory = "hummock_data" 

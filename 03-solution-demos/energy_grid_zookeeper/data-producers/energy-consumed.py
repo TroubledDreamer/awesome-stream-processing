@@ -31,7 +31,7 @@ def simulate_energy_consumption(date: datetime.datetime) -> float:
     else:
         time_factor = 0.5
 
-    fluctuation = random.uniform(0.9, 1.1)
+    fluctuation = random.uniform(0.4, 1.1)
     base_consumption = 0.025 
     consumption = base_consumption * time_factor * fluctuation
     
@@ -78,7 +78,7 @@ if __name__ == "__main__":
                 producer.send(topic, message_str)
             current_time += datetime.timedelta(minutes=1)
             if current_time.day != 1:
-                time.sleep(0.8)
+                time.sleep(0.1)
 
     finally:
         print('Producer closed')

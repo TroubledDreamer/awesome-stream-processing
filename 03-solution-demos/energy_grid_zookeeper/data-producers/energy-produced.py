@@ -37,9 +37,9 @@ def simulate_energy_production(date: datetime.datetime) -> float:
     elif month in [9, 10, 11]:  # Autumn
         season_factor = 0.6
 
-    base_production = 0.05  
+    base_production = 0.05 
 
-    fluctuation = random.uniform(0.6, 1.0)
+    fluctuation = random.uniform(0.5, 1.0)
 
     # Calculate the final production for the minute
     production = base_production * time_factor * season_factor * fluctuation
@@ -89,7 +89,7 @@ if __name__ == "__main__":
                 producer.send(topic, message_str)
             current_time += datetime.timedelta(minutes=1)
             if current_time.day != 1:
-                time.sleep(0.8)
+                time.sleep(0.1)
 
     finally:
         print('Producer closed')

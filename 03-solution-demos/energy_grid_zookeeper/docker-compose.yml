@@ -2,9 +2,6 @@
 
 services:
 
-
-  # zookeeper
-
   zookeeper:
 
     platform: linux/amd64
@@ -20,11 +17,6 @@ services:
     networks:
 
       - kafka-net
-
-
-  # kafka
-
-    # kafka
 
   kafka:
 
@@ -58,33 +50,38 @@ services:
 
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
 
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:9092"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     networks:
 
      - kafka-net
 
-
-
-  # risingwave
-
   risingwave:
-
     image: risingwavelabs/risingwave:v1.10.0
-
+    container_name: risingwave
     ports:
-
     - 5690:5690
-
     - 5691:5691
-
     - 4566:4566
+    # Remove the previous command and entrypoint (the base image sets these)
+    # command: ["single_node", "--config-path", "/etc/risingwave/risingwave-config.toml"]
 
-    entrypoint:
-
-    - /risingwave/bin/risingwave
-
-    - playground
-
-    healthcheck:
+    entrypoint: 
+      - sh
+      - -c
+      # Execute the original command in the background (&) and then tail a dummy file to keep the container alive (tail -f /dev/null)
+      - "/bin/bash -c \"/risingwave/bin/risingwave single_node --config-path /etc/risingwave/risingwave-config.toml &\" && tail -f /dev/null"
+    environment:
+      RW_META_BACKEND: "hummock" 
+      RUST_LOG: "warn"
+    volumes:
+      - ./risingwave-config.toml:/etc/risingwave/risingwave-config.toml
+      - risingwave_data:/risingwave/data
+    healthcheck:  # Restore ping-based healthcheck
       test: 
         - "CMD-SHELL"
         - |
@@ -92,17 +89,15 @@ services:
             echo "Installing ping..." &&
             apt-get update && apt-get install -y iputils-ping
           fi &&
-          echo "Pinging kafka..." &&
-          ping -c 5 kafka && 
-          echo "Health check passed"
+          echo "Checking RisingWave port..." &&
+          timeout 5 bash -c 'cat < /dev/null > /dev/tcp/localhost/4566' &&
+          echo "RisingWave is healthy"
       interval: 10s
-      timeout: 30s
+      timeout: 10s
       retries: 5
-      start_period: 30s
+      start_period: 10s
     networks:
-
-     - kafka-net
-
+      - kafka-net
 
   postgres:
 
@@ -140,7 +135,6 @@ services:
 
      - kafka-net
 
-
   grafana:
 
     image: grafana/grafana
@@ -170,7 +164,6 @@ services:
 
       - kafka-net
 
-
   postgres_prepare:
     image: postgres:15
     depends_on: 
@@ -189,9 +182,6 @@ services:
     restart: on-failure
     networks:
       - kafka-net
-
-
-  # kafka producer
 
   kafka-producer:
 
@@ -219,9 +209,6 @@ services:
 
      - kafka-net
 
-  # -------------------------------------------------------
-  # 6. RisingWave Setup (Final step)
-  # -------------------------------------------------------
   risingwave_setup:
     image: postgres:15
     depends_on:
@@ -232,7 +219,7 @@ services:
     command: |
       /bin/sh -c "
         echo 'Waiting for RisingWave to be ready...' &&
-        sleep 5 &&
+        sleep 10 &&
         echo 'Running source commands...' &&
         psql -h risingwave -p 4566 -d dev -U root -f /source_commands.sql &&
         echo 'Running materialized view commands...' &&
@@ -247,7 +234,6 @@ services:
     networks:
       - kafka-net
 
-
 networks:
 
   kafka-net:
@@ -255,3 +241,7 @@ networks:
     driver: bridge
 
     name: kafka-net
+
+volumes:
+  risingwave_data:
+    driver: local

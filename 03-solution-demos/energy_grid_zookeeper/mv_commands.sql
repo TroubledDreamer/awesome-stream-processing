@@ -19,7 +19,7 @@ FROM
             TUMBLE(
                 energy_consume,
                 consumption_time,
-                INTERVAL '5' MINUTE)
+                INTERVAL '1' SECOND)
         GROUP BY
             meter_id,
             window_end
@@ -33,7 +33,7 @@ FROM
             TUMBLE(
 	            energy_produce,
 	            production_time,
-	            INTERVAL '5' MINUTE) 
+	            INTERVAL '1' SECOND) 
         GROUP BY
             meter_id,
             window_end
