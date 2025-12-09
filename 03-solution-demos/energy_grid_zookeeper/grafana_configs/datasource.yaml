@@ -9,8 +9,15 @@ datasources:
     database: dev
     user: root
     password: 
-    isDefault: true
+    isDefault: false
     jsonData:
       sslmode: "disable"
+    version: 1
+    editable: true
+  - name: websocket-stream
+    type: grafana-websocket-datasource
+    access: proxy
+    url: ws://websocket-server:8080
+    isDefault: false
     version: 1
     editable: true

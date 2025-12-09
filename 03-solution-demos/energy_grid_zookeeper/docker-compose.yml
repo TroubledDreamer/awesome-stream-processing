@@ -135,35 +135,6 @@ services:
 
      - kafka-net
 
-  grafana:
-
-    image: grafana/grafana
-
-    ports:
-
-      - "3000:3000"  
-
-    environment:
-
-      - GF_AUTH_ANONYMOUS_ENABLED=true
-
-      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
-
-    volumes:
-
-      - "./grafana_configs/datasource.yaml:/etc/grafana/provisioning/datasources/datasource.yaml"
-
-      - "./grafana_configs/dashboard.yaml:/etc/grafana/provisioning/dashboards/main.yaml"
-
-      - "./grafana_configs:/var/lib/grafana/dashboards"
-
-    depends_on:
-      risingwave_setup:
-        condition: service_completed_successfully
-    networks:
-
-      - kafka-net
-
   postgres_prepare:
     image: postgres:15
     depends_on: 
@@ -233,6 +204,49 @@ services:
     restart: on-failure
     networks:
       - kafka-net
+
+  websocket-server:
+    build: ./websocket-server
+    ports:
+      - "8080:8080"
+    depends_on:
+      risingwave_setup:
+        condition: service_completed_successfully
+    environment:
+      - NODE_ENV=production
+    networks:
+      - kafka-net
+
+  # grafana:
+
+  #   image: grafana/grafana
+
+  #   ports:
+
+  #     - "3000:3000"  
+
+  #   environment:
+
+  #     - GF_AUTH_ANONYMOUS_ENABLED=true
+
+  #     - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+
+  #     - GF_INSTALL_PLUGINS=grafana-websocket-datasource
+
+  #   volumes:
+
+  #     - "./grafana_configs/datasource.yaml:/etc/grafana/provisioning/datasources/datasource.yaml"
+
+  #     - "./grafana_configs/dashboard.yaml:/etc/grafana/provisioning/dashboards/main.yaml"
+
+  #     - "./grafana_configs:/var/lib/grafana/dashboards"
+
+  #   depends_on:
+  #     risingwave_setup:
+  #       condition: service_completed_successfully
+  #   networks:
+
+  #     - kafka-net
 
 networks:
 

@@ -1967,6 +1967,41 @@
       "title": "Customer Bill Monitoring",
       "type": "row"
     }
+,
+  {
+    "id": 999,
+    "title": "Real-Time Energy Streaming",
+    "type": "table",
+    "datasource": {
+      "type": "grafana-websocket-datasource",
+      "uid": "${DS_WEBSOCKET}"
+    },
+    "targets": [
+      {
+        "query": "{\"type\": \"subscribe_energy\"}",
+        "refId": "A"
+      }
+    ],
+    "gridPos": {
+      "h": 8,
+      "w": 24,
+      "x": 0,
+      "y": 0
+    },
+    "fieldConfig": {
+      "defaults": {
+        "custom": {
+          "align": "auto",
+          "displayMode": "auto"
+        }
+      },
+      "overrides": []
+    },
+    "options": {
+      "showHeader": true
+    }
+  }
+
   ],
   "refresh": "1s",
   "schemaVersion": 39,
@@ -1985,3 +2020,4 @@
   "version": 1,
   "weekStart": ""
 }
+
