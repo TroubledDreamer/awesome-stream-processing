@@ -1,3 +1,5 @@
 .DS_Store
 
 05-agent-demo/data/.env
+
+03-solution-demos/energy_grid_zookeeper/energy-dashboard/node_modules
