@@ -16,10 +16,11 @@ FROM
             SUM(energy_consumed) AS energy_consumed,
             window_end
         FROM
+            -- HOP(energy_consume, consumption_time, INTERVAL '0.5 SECOND', INTERVAL '0.5 SECOND')
             TUMBLE(
                 energy_consume,
                 consumption_time,
-                INTERVAL '1' SECOND)
+                INTERVAL '1 SECOND')
         GROUP BY
             meter_id,
             window_end
@@ -30,10 +31,11 @@ FROM
             SUM(energy_produced) AS energy_produced,
             window_end
         FROM
+            -- HOP(energy_produce, production_time, INTERVAL '0.5 SECOND', INTERVAL '0.5 SECOND')
             TUMBLE(
 	            energy_produce,
 	            production_time,
-	            INTERVAL '1' SECOND) 
+	            INTERVAL '1 SECOND') 
         GROUP BY
             meter_id,
             window_end

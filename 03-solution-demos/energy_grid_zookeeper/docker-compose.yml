@@ -61,7 +61,7 @@ services:
      - kafka-net
 
   risingwave:
-    image: risingwavelabs/risingwave:v1.10.0
+    image: risingwavelabs/risingwave
     container_name: risingwave
     ports:
     - 5690:5690

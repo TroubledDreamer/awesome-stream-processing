@@ -87,7 +87,7 @@ if __name__ == "__main__":
                 }
                 message_str = json.dumps(data).encode('utf-8')
                 producer.send(topic, message_str)
-            current_time += datetime.timedelta(minutes=1)
+            current_time += datetime.timedelta(milliseconds=100)
             if current_time.day != 1:
                 time.sleep(0.1)
 

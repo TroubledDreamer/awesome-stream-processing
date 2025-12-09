@@ -1968,7 +1968,7 @@
       "type": "row"
     }
   ],
-  "refresh": "5s",
+  "refresh": "1s",
   "schemaVersion": 39,
   "tags": [],
   "templating": {
