@@ -1,4 +1,4 @@
-CREATE SOURCE energy_consume (
+CREATE SOURCE IF NOT EXISTS energy_consume (
   consumption_time timestamptz, 
   meter_id integer, 
   energy_consumed double precision
@@ -8,7 +8,7 @@ CREATE SOURCE energy_consume (
     properties.bootstrap.server = 'kafka:9092'
 ) FORMAT PLAIN ENCODE JSON;
 
-CREATE SOURCE energy_produce (
+CREATE SOURCE IF NOT EXISTS energy_produce (
   production_time timestamptz, 
   meter_id integer, 
   energy_produced double precision
@@ -18,7 +18,7 @@ CREATE SOURCE energy_produce (
     properties.bootstrap.server = 'kafka:9092'
 ) FORMAT PLAIN ENCODE JSON;
 
-CREATE SOURCE pg_mydb WITH (
+CREATE SOURCE IF NOT EXISTS pg_mydb WITH (
     connector = 'postgres-cdc',
     hostname = 'postgres',
     port = '5432',

@@ -15,36 +15,52 @@ def is_broker_available():
         return False
 
 def simulate_energy_production(date: datetime.datetime) -> float:
+    """
+    Simulates realistic solar energy production (comparable to consumption values).
+    Handles both timezone-aware and naive datetime objects by normalizing to UTC.
+    """
+
+    # Ensure timestamp is timezone-aware (UTC)
+    if date.tzinfo is None:
+        date = date.replace(tzinfo=datetime.timezone.utc)
+    else:
+        date = date.astimezone(datetime.timezone.utc)
 
     hour = date.hour
     minute = date.minute
-    
-    # Basic curve for solar production based on time of day (higher at noon)
-    if 6 <= hour <= 18:  # Solar production only between 6 AM and 6 PM
-        # Calculate time factor based on proximity to noon
+
+    # --- Time-of-day solar curve ---
+    # Peak at noon, zero at night. Produces only 6 AM – 6 PM.
+    if 6 <= hour <= 18:
+        # smooth curve centered on 12:00
         time_factor = max(0, 1 - abs(12 - (hour + minute / 60)) / 6)
     else:
-        time_factor = 0  # No production at night
+        time_factor = 0.0
 
+    # --- Seasonal scaling ---
     month = date.month
-    
-    if month in [12, 1, 2]:  # Winter
-        season_factor = 0.3
-    elif month in [3, 4, 5]:  # Spring
-        season_factor = 0.5
-    elif month in [6, 7, 8]:  # Summer
+
+    if month in (12, 1, 2):       # Winter
+        season_factor = 0.6   # lower solar intensity
+    elif month in (3, 4, 5):      # Spring
+        season_factor = 0.9
+    elif month in (6, 7, 8):      # Summer
+        season_factor = 1.2   # highest production
+    else:                         # Autumn
         season_factor = 0.8
-    elif month in [9, 10, 11]:  # Autumn
-        season_factor = 0.6
 
-    base_production = 0.05 
+    # --- Base peak output (midday summer) ---
+    # Increase this to make solar match consumption scale.
+    peak_output = 6.0  # typical midday output (can tune)
 
-    fluctuation = random.uniform(0.5, 1.0)
+    # --- Natural fluctuation ---
+    fluctuation = random.uniform(0.85, 1.15)
 
-    # Calculate the final production for the minute
-    production = base_production * time_factor * season_factor * fluctuation
-    
+    # Final production
+    production = peak_output * time_factor * season_factor * fluctuation
+
     return round(production, 3)
+
 
 # Kafka topic to produce messages to
 topic = 'energy_produced'
@@ -72,24 +88,33 @@ print("Kafka broker is available. Starting producer...")
 producer = KafkaProducer(**kafka_config)
 
 if __name__ == "__main__":
-
     try:
-    # Produce messages to the Kafka topic
-        start = datetime.datetime.now()
-        current_time = datetime.datetime(1997, 5, 1, 0, 0, 0)
+        # Start time of the producer in UTC (timezone-aware)
+        start = datetime.datetime.now(datetime.timezone.utc)
+
         while True:
+            # Always use current real UTC time (timezone-aware)
+            current_time = datetime.datetime.now(datetime.timezone.utc)
+
             for meter_id in range(1, 21):
                 energy_produced = simulate_energy_production(current_time)
+
                 data = {
-                    "production_time": current_time.strftime('%Y-%m-%dT%H:%M:%SZ'),
+                    "production_time": current_time.strftime('%Y-%m-%dT%H:%M:%S.%fZ')[:-3] + 'Z',
                     "meter_id": meter_id,
                     "energy_produced": energy_produced
                 }
+
                 message_str = json.dumps(data).encode('utf-8')
                 producer.send(topic, message_str)
-            current_time += datetime.timedelta(milliseconds=100)
-            if current_time.day != 1:
-                time.sleep(0.1)
+
+            # current_time += datetime.timedelta(milliseconds=100)  # <-- original increment (now comment)
+            # if current_time.day != 1:                            # <-- original day check (now comment)
+            time.sleep(0.1)
+
+    except Exception as e:
+        print("Error:", e)
+
 
     finally:
         print('Producer closed')

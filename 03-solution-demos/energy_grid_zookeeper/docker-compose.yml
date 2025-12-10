@@ -78,6 +78,7 @@ services:
     environment:
       RW_META_BACKEND: "hummock" 
       RUST_LOG: "warn"
+      TZ: UTC
     volumes:
       - ./risingwave-config.toml:/etc/risingwave/risingwave-config.toml
       - risingwave_data:/risingwave/data
@@ -190,11 +191,18 @@ services:
     command: |
       /bin/sh -c "
         echo 'Waiting for RisingWave to be ready...' &&
-        sleep 10 &&
+        sleep 25 &&
         echo 'Running source commands...' &&
         psql -h risingwave -p 4566 -d dev -U root -f /source_commands.sql &&
+        echo 'Waiting for sources to stabilize...' &&
+        sleep 15 &&
         echo 'Running materialized view commands...' &&
-        psql -h risingwave -p 4566 -d dev -U root -f /mv_commands.sql &&
+        # Run materialized views with error handling - allow some failures and retry
+        psql -h risingwave -p 4566 -d dev -U root -f /mv_commands.sql || (
+          echo 'Some materialized views failed, waiting and retrying...' &&
+          sleep 15 &&
+          psql -h risingwave -p 4566 -d dev -U root -f /mv_commands.sql || true
+        ) &&
         echo 'RisingWave setup complete!'
       "
     volumes:

@@ -14,28 +14,39 @@ def is_broker_available():
         print(f"Broker not available: {e}")
         return False
 
-def simulate_energy_consumption(date: datetime.datetime) -> float:
-    # Time of day factors
-    hour = date.hour
-    minute = date.minute
-    
-    # Basic curve for energy consumption based on time of day
-    if 6 <= hour < 9:  # Morning peak (6 AM to 9 AM)
-        time_factor = 1.4
-    elif 17 <= hour < 21:  # Evening peak (5 PM to 9 PM)
-        time_factor = 1.7
-    elif 9 <= hour < 17:  # Daytime (9 AM to 5 PM)
-        time_factor = 1.2
-    elif 21 <= hour or hour < 6:  # Nighttime (9 PM to 6 AM)
-        time_factor = 0.7
-    else:
-        time_factor = 0.5
+def simulate_energy_consumption(current_time):
+    """
+    Simulates energy consumption based on the current time.
+    Works with both timezone-aware and naive datetime objects,
+    but always converts internally to UTC for consistency.
+    """
 
-    fluctuation = random.uniform(0.4, 1.1)
-    base_consumption = 0.025 
-    consumption = base_consumption * time_factor * fluctuation
-    
-    return round(consumption, 3)
+    # Ensure timestamp is timezone-aware (UTC)
+    if current_time.tzinfo is None:
+        # Assume naive timestamps are intended to be UTC
+        current_time = current_time.replace(tzinfo=datetime.timezone.utc)
+    else:
+        # Normalize to UTC in case a different tz is provided
+        current_time = current_time.astimezone(datetime.timezone.utc)
+
+    # Example consumption logic — adjust as needed
+    hour = current_time.hour
+
+    # Simple diurnal consumption pattern
+    if 0 <= hour < 6:
+        base_consumption = 1.2
+    elif 6 <= hour < 12:
+        base_consumption = 3.7
+    elif 12 <= hour < 18:
+        base_consumption = 5.4
+    else:
+        base_consumption = 2.8
+
+    # Add some variation
+    noise = (current_time.microsecond % 100000) / 1000000.0
+
+    return round(base_consumption + noise, 3)
+
 
 # Kafka topic to produce messages to
 topic = 'energy_consumed'
@@ -64,21 +75,32 @@ producer = KafkaProducer(**kafka_config)
 
 if __name__ == "__main__":
     try:
-        start = datetime.datetime.now()
-        current_time = datetime.datetime(1997, 5, 1, 0, 0, 0)
-        energy_consumed = simulate_energy_consumption(current_time)
+        # The moment the program begins, in UTC (timezone-aware)
+        start = datetime.datetime.now(datetime.timezone.utc)
+
         while True:
+            # Always use the current real UTC time (timezone-aware)
+            current_time = datetime.datetime.now(datetime.timezone.utc)
+
+            # Recalculate energy for this timestamp
+            energy_consumed = simulate_energy_consumption(current_time)
+
             for meter_id in range(1, 21):
                 data = {
-                    "consumption_time": current_time.strftime('%Y-%m-%dT%H:%M:%SZ'),
+                    "consumption_time": current_time.strftime('%Y-%m-%dT%H:%M:%S.%fZ')[:-3] + 'Z',
                     "meter_id": meter_id,
                     "energy_consumed": energy_consumed
                 }
                 message_str = json.dumps(data).encode('utf-8')
                 producer.send(topic, message_str)
-            current_time += datetime.timedelta(milliseconds=100)
-            if current_time.day != 1:
-                time.sleep(0.1)
+
+            # current_time += datetime.timedelta(milliseconds=100)  # <-- original increment, now comment
+            # if current_time.day != 1:                             # <-- original conditional, now comment
+            time.sleep(0.1)  # send data every 100ms
+
+    except Exception as e:
+        print("Error:", e)
+
 
     finally:
         print('Producer closed')

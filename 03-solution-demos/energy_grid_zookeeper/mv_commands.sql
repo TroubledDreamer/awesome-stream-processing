@@ -1,8 +1,9 @@
+SET TIME ZONE 'UTC';
 CREATE FUNCTION count_days(a timestamptz)
 RETURNS NUMERIC LANGUAGE SQL AS
 $$SELECT EXTRACT(DAY FROM (DATE_TRUNC('month', a) + INTERVAL '1 month' - INTERVAL'1 day'))$$;
 
-CREATE MATERIALIZED VIEW energy_per_house AS
+CREATE MATERIALIZED VIEW IF NOT EXISTS energy_per_house AS
 SELECT
 	consumed.meter_id,
 	energy_consumed,
@@ -42,7 +43,7 @@ FROM
     ) AS produced ON consumed.meter_id = produced.meter_id
     AND consumed.window_end = produced.window_end;
 
-CREATE MATERIALIZED VIEW energy_per_month AS
+CREATE MATERIALIZED VIEW IF NOT EXISTS energy_per_month AS
 SELECT
 	meter_id,
 	SUM(total_energy) AS total_energy,
@@ -51,7 +52,7 @@ SELECT
 FROM energy_per_house
 GROUP BY meter_id, date_trunc('month', window_end), date_trunc('year', window_end);
 
-CREATE MATERIALIZED VIEW tiered_meters AS
+CREATE MATERIALIZED VIEW IF NOT EXISTS tiered_meters AS
 SELECT
 	customers.meter_id,
 	total_energy,
@@ -60,7 +61,7 @@ FROM energy_per_house
 LEFT JOIN customers ON energy_per_house.meter_id = customers.meter_id
 WHERE customers.price_plan = 'tier';
 
-CREATE MATERIALIZED VIEW tou_meters AS
+CREATE MATERIALIZED VIEW IF NOT EXISTS tou_meters AS
 SELECT
 	customers.meter_id,
 	total_energy,
@@ -69,7 +70,7 @@ FROM energy_per_house
 LEFT JOIN customers ON energy_per_house.meter_id = customers.meter_id
 WHERE customers.price_plan = 'time of use';
 
-CREATE MATERIALIZED VIEW current_bill_tiered AS
+CREATE MATERIALIZED VIEW IF NOT EXISTS current_bill_tiered AS
 WITH monthly_consumption AS (
     SELECT
         meter_id,
@@ -107,7 +108,7 @@ GROUP BY
     meter_id,
     month, year;
 
-CREATE MATERIALIZED VIEW estimated_tier_cost AS
+CREATE MATERIALIZED VIEW IF NOT EXISTS estimated_tier_cost AS
 WITH truncated_month AS (
     SELECT * FROM tiered_meters
     WHERE DATE_TRUNC('day', window_end) < (select max(date_trunc('day', window_end)) from energy_per_house)
@@ -158,7 +159,7 @@ FROM
 GROUP BY
     meter_id, month;
 
-CREATE MATERIALIZED VIEW current_bill_tou AS
+CREATE MATERIALIZED VIEW IF NOT EXISTS current_bill_tou AS
 WITH hourly_cost AS (
     SELECT
         meter_id,
@@ -194,7 +195,7 @@ ON month_cost.meter_id = energy_per_month.meter_id
 	AND month_cost.month = energy_per_month.month
 	AND month_cost.year = energy_per_month.year;
 
-CREATE MATERIALIZED VIEW estimated_tou_cost AS
+CREATE MATERIALIZED VIEW IF NOT EXISTS  estimated_tou_cost AS
 WITH truncated_month AS (
     SELECT * FROM tou_meters
     WHERE DATE_TRUNC('day', window_end) < (select max(date_trunc('day', window_end)) from energy_per_house)
@@ -231,3 +232,13 @@ SELECT
     GROUP BY
         meter_id,
         month;
+
+CREATE MATERIALIZED VIEW IF NOT EXISTS energy_stream AS
+SELECT
+  meter_id,
+  energy_consumed,
+  energy_produced,
+  total_energy,
+  window_end
+FROM energy_per_house
+ORDER BY window_end ASC;

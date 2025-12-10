@@ -1,48 +1,33 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useCallback } from 'react'
 import EnergyTable from '../components/EnergyTable'
 import EnergyCard from '../components/EnergyCard'
+import WebSocketClient from '../components/WebSocketClient'
 
 export default function Home() {
   const [energyData, setEnergyData] = useState([])
   const [connectionStatus, setConnectionStatus] = useState('disconnected')
 
-  useEffect(() => {
-    const ws = new WebSocket('ws://localhost:8080')
+  // Callback for initial snapshot
+  const handleSnapshot = useCallback((snapshot) => {
+    console.log('Received snapshot:', snapshot.length, 'rows')
+    setEnergyData(snapshot || [])
+  }, [])
 
-    ws.onopen = () => {
-      console.log('Connected to WebSocket')
-      setConnectionStatus('connected')
+  // Callback for incremental updates
+  const handleUpdate = useCallback((update) => {
+    console.log('Received update:', update)
+    setEnergyData(prev => {
+      // Add new row and keep only latest 100 rows for performance
+      const updated = [update, ...prev]
+      return updated.slice(0, 100)
+    })
+  }, [])
 
-      // Subscribe to energy data
-      ws.send(JSON.stringify({ type: 'subscribe_energy' }))
-    }
-
-    ws.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data)
-        if (data.type === 'energy_data' && data.data) {
-          setEnergyData(data.data)
-        }
-      } catch (error) {
-        console.error('Error parsing WebSocket data:', error)
-      }
-    }
-
-    ws.onclose = () => {
-      console.log('WebSocket connection closed')
-      setConnectionStatus('disconnected')
-    }
-
-    ws.onerror = (error) => {
-      console.error('WebSocket error:', error)
-      setConnectionStatus('error')
-    }
-
-    return () => {
-      ws.close()
-    }
+  // Callback for status changes
+  const handleStatus = useCallback((status) => {
+    setConnectionStatus(status)
   }, [])
 
   const totalConsumption = energyData.reduce((sum, item) => sum + (item.energy_consumed || 0), 0)
@@ -51,6 +36,13 @@ export default function Home() {
 
   return (
     <div className="container mx-auto px-4 py-8">
+      {/* WebSocket client component (handles connection + auto-reconnect) */}
+      <WebSocketClient 
+        onSnapshot={handleSnapshot}
+        onUpdate={handleUpdate}
+        onStatus={handleStatus}
+      />
+      
       <div className="mb-8">
         <h1 className="text-4xl font-bold text-emerald-100 mb-2">Energy Grid Monitor</h1>
         <p className="text-emerald-300">Real-time energy consumption and production tracking</p>

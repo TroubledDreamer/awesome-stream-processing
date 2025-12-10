@@ -2,13 +2,13 @@
 
 import { useEffect, useRef, useState } from 'react';
 
-export default function WebSocketClient({ onData, onStatus }) {
+export default function WebSocketClient({ onSnapshot, onUpdate, onStatus }) {
   const [status, setStatus] = useState('disconnected');
   const wsRef = useRef(null);
   const reconnectRef = useRef(null);
 
   useEffect(() => {
-    let reconnectDelay = 1000; // 1 second, grows to 10s max
+    let reconnectDelay = 1000;
 
     function connect() {
       setStatus('connecting');
@@ -24,15 +24,18 @@ export default function WebSocketClient({ onData, onStatus }) {
 
         // Subscribe to RisingWave stream
         ws.send(JSON.stringify({ type: 'subscribe_energy' }));
-
-        // Reset reconnect delay on success
         reconnectDelay = 1000;
       };
 
       ws.onmessage = (event) => {
         try {
           const msg = JSON.parse(event.data);
-          onData?.(msg);
+
+          if (msg.type === 'energy_snapshot') {
+            onSnapshot?.(msg.data);
+          } else if (msg.type === 'energy_update') {
+            onUpdate?.(msg.data);
+          }
         } catch (err) {
           console.error('[WS] parse error:', err);
         }
@@ -49,7 +52,6 @@ export default function WebSocketClient({ onData, onStatus }) {
         setStatus('disconnected');
         onStatus?.('disconnected');
 
-        // Attempt reconnect unless component unmounted
         reconnectRef.current = setTimeout(() => {
           reconnectDelay = Math.min(10000, reconnectDelay * 1.5);
           connect();
@@ -63,7 +65,7 @@ export default function WebSocketClient({ onData, onStatus }) {
       if (reconnectRef.current) clearTimeout(reconnectRef.current);
       if (wsRef.current) wsRef.current.close();
     };
-  }, [onData, onStatus]);
+  }, [onSnapshot, onUpdate, onStatus]);
 
   return null;
 }
