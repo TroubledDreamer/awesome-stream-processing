@@ -1,9 +1,10 @@
 {
-    "name": "risingwave-websocket-streamer",
-    "version": "1.0.0",
-    "main": "server.js",
-    "dependencies": {
-      "ws": "^8.13.0",
-      "pg": "^8.11.0"
-    }
+  "name": "risingwave-websocket-streamer",
+  "version": "1.0.0",
+  "main": "server.js",
+  "dependencies": {
+    "ws": "^8.13.0",
+    "pg": "^8.11.0",
+    "csv-parse": "^5.5.0"
   }
+}
